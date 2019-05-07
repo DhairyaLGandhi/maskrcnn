@@ -624,15 +624,14 @@ function bbox_overlaps2(boxes1, boxes2)
     b1_x1, b2_x1 = boxes1[:, 2], boxes2[:, 2]
     b1_y2, b2_y2 = boxes1[:, 3], boxes2[:, 3]
     b1_x2, b2_x2 = boxes1[:, 4], boxes2[:, 4]
-    @show b1_y1
     y1 = max.(b1_y1, b2_y1)
     x1 = max.(b1_x1, b2_x1)
     y2 = min.(b1_y2, b2_y2)
     x2 = min.(b1_x2, b2_x2)
     zs = zeros(size(y1, 1))
-    intersection = max.(x2 .- x1, zs) .* max.(y2 .- y1, zs)
-    b1_area = (b1_y2 .- b1_y1) .* (b1_x2 .- b1_x1)
-    b2_area = (b2_y2 .- b2_y1) .* (b2_x2 .- b2_x1)
+    intersection = max.(x2 .- x1 .+ 1, zs) .* max.(y2 .- y1 .+ 1, zs)
+    b1_area = (b1_y2 .- b1_y1 .+ 1) .* (b1_x2 .- b1_x1 .+ 1)
+    b2_area = (b2_y2 .- b2_y1 .+ 1) .* (b2_x2 .- b2_x1 .+ 1)
     unions = b1_area .+ b2_area .- intersection
     iou = intersection ./ unions
     iou = reshape(iou, boxes2_repeat[1], boxes1_repeat[1])
@@ -648,7 +647,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 		crowd_masks = gt_masks[crowd_ix.data, :, :]
 		gt_class_ids = gt_class_ids[non_crowd_ix]
 		gt_boxes = gt_boxes[non_crowd_ix, :]
-        gt_masks = gt_masks[non_crowd_ix, :]
+        gt_masks = gt_masks[:, :, non_crowd_ix]
 
         crowd_overlaps = bbox_overlaps2(proposals, crowd_boxes)
         crowd_iou_max = maximum(crowd_overlaps, dims = 2)
@@ -665,27 +664,31 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     @show typeof(gt_boxes)
     overlaps = bbox_overlaps2(proposals, gt_boxes)
     @show "after first op"
-    # @show overlaps
     roi_iou_max = maximum(overlaps, dims = 2)
 
     positive_roi_bool = roi_iou_max .>= 0.5f0
 
     if sum(positive_roi_bool) > 0
     	positive_indices = findall(positive_roi_bool)
+    	@show length(positive_indices)
     	TRAIN_ROIS_PER_IMAGE = 200
     	ROI_POSITIVE_RATIO = 0.33
     	positive_count = round(Integer, TRAIN_ROIS_PER_IMAGE * ROI_POSITIVE_RATIO)
     	rand_idx = shuffle(positive_indices)
-    	# @show rand_idx
     	rand_idx = rand_idx[1:positive_count]
+    	# @show length(rand_idx)
+    	# @show positive_indices
+    	# @show positive_indices[rand_idx[1]]
 
-    	positive_indices = positive_indices[rand_idx]
+    	# positive_indices = positive_indices[rand_idx]
+    	positive_indices = rand_idx
+    	@show typeof(positive_indices)
     	positive_count = size(positive_indices, 1)
     	positive_indices = map(x -> x.I[1], positive_indices)
     	positive_rois = proposals[positive_indices, :]
 
-    	positive_overlaps = overlaps[positive_indices, :]
-    	roi_gt_box_assignment = findmax(positive_overlaps, dims = 2)[2]
+    	positive_overlaps = overlaps[Tracker.data(positive_indices), :]
+    	roi_gt_box_assignment = findmax(positive_overlaps.data, dims = 2)[2]
     	roi_gt_box_assignment = vec(map(x -> x.I[2], roi_gt_box_assignment))
     	roi_gt_boxes = gt_boxes[roi_gt_box_assignment, :]
     	# @show size(roi_gt_boxes)
@@ -695,7 +698,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     	std_dev = BBOX_STD_DEV
 
     	deltas = deltas ./ std_dev
-    	roi_masks = gt_masks[:,:, :, roi_gt_box_assignment]
+    	roi_masks = gt_masks[:,:, roi_gt_box_assignment, :]
 
     	boxes = positive_rois
 
@@ -729,8 +732,13 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 		# @info "before crop_and_resize"
 		# @show size(roi_masks)
 		# @show boxes
+		@show size(roi_masks)
+		# roi_masks = dropdims(roi_masks, dims = 4)
+		roi_masks = permutedims(roi_masks, (1,2,4,3))
 		masks = crop_and_resize(roi_masks, boxes, box_ids, MASK_SHAPE...)
-		# @info "after crop_and_resize"
+		masks = dropdims(masks, dims = 3)
+		@info "after crop_and_resize"
+		@show size(masks)
 		masks = round.(masks)
 	else
 		positive_count = 0
@@ -744,26 +752,34 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 	if sum(findall(!iszero, vec(negative_roi_bool))) > 0 && (positive_count > 0)
 		negative_indices = findall(!iszero, negative_roi_bool)
 		ROI_POSITIVE_RATIO = 0.33f0
-		r = 1.0f0 / config.ROI_POSITIVE_RATIO
+		r = 1.0f0 / ROI_POSITIVE_RATIO
 		negative_count = floor(Integer, (r - 1) * positive_count)
-		rand_idx = shuffle(size(negative_indices, 1))
+		rand_idx = shuffle(1:size(negative_indices, 1))
 		rand_idx = rand_idx[1:negative_count]
 		negative_indices = negative_indices[rand_idx]
 		negative_count = size(negative_indices, ndims(negative_indices))
-		negative_rois = proposals[negative_indices.data, :]
+		# @show size(proposals)
+		negative_indices = map(x -> x.I[1], negative_indices)
+		negative_rois = proposals[negative_indices, :]
+		# @show size(negative_rois)
 	else
 		negative_count = 0
 	end
 	# @show positive_count, negative_count
-
+	# error()
 	if positive_count > 0 && negative_count > 0
+		@show size(positive_rois)
+		@show size(negative_rois)
 		rois = vcat(positive_rois, negative_rois)
 		zs = zeros(Integer, negative_count)
 		roi_gt_class_ids = vcat(roi_gt_class_ids, zs)
 		zs = zeros(negative_count, 4)
 		deltas = vcat(deltas, zs)
+		@show typeof(deltas)
 		zs = zeros(MASK_SHAPE..., negative_count)
-		masks = cat(masks, zs, dims = 4)
+		@show size(masks)
+		@show size(zs)
+		masks = cat(masks, zs, dims = 3)
 	elseif positive_count > 0
 		rois = positive_rois
 	elseif negative_count > 0

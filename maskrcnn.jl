@@ -575,6 +575,13 @@ function predict(c::MaskRCNN, molded_images, image_metas,
                 detection_target_layer(rpn_rois, gt_class_ids,
                                       gt_boxes, gt_masks)
 
+    mrcnn_class_logits, mrcnn_class, mrcnn_bbox = c.classifier(mrcnn_feature_maps, rois)
+
+    mrcnn_mask = c.mask(mrcnn_feature_maps, rois)
+    @warn "am i actually done?"
+
+    return (rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits,
+            target_deltas, mrcnn_bbox, target_mask, mrcnn_mask)
 
   else
     error("Mode $mode not implemented")
