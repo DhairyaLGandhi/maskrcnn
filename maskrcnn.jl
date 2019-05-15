@@ -2,6 +2,8 @@ using Flux, Flux.Tracker, Flux.Optimise
 using BSON: @load, @save
 using Images
 using Flux: @treelike
+import StatsBase.predict
+include("dataset.jl")
 
 # use Resnet from Metalhead
 struct ConvBlock
@@ -582,7 +584,8 @@ function predict(c::MaskRCNN, molded_images, image_metas,
 
     return (rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits,
             target_deltas, mrcnn_bbox, target_mask, mrcnn_mask)
-
+    # use o/p from here, add targets from datatset.jl
+    # compute loss here and push backprop
   else
     error("Mode $mode not implemented")
   end
@@ -590,5 +593,36 @@ function predict(c::MaskRCNN, molded_images, image_metas,
 
 end
 
-include("utils.jl")
+function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_batch = 2)
+  if dataset != "coco"
+    return "Define $dataset API, or use the COCO API"
+  end
 
+  cid, images, classes = get_class_ids()
+  c = build()
+  masks = Dict()
+
+  total_images = length(images)
+  for epoch in 1:epochs
+
+    img_data, mask, img_class, rpn_bbox, masks = sample_coco(cid, images, classes, masks = masks)
+    molded_image, image_metas, windows = mold_inputs((img_data,))
+
+    rpn_class_logits, rpn_bbox, target_class_ids,
+    mrcnn_class_logits, target_deltas, mrcnn_bbox,
+    target_mask, mrcnn_mask = predict(c,
+                              molded_images,
+                              image_metas,
+                              gt_class_ids,
+                              gt_boxes,
+                              gt_masks,
+                              "training")
+
+    l1, l2, l3 = compute_losses(rpn_class_logits, rpn_bbox, target_class_ids,
+                                mrcnn_class_logits, target_deltas, mrcnn_bbox,
+                                target_mask, mrcnn_mask)
+
+  end
+end
+
+include("utils.jl")
