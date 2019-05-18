@@ -247,7 +247,7 @@ function (c::Classifier)(x, rois)
   # @show typeof(x)
   x = pyramid_roi_align((rois, x...), c.pool_size, c.image_shape)
   @show "passed pyramide"
-  # @sho
+  @show size(x)
   x = c.chain(x)
   @show size(x)
   x = dropdims(x, dims = (1,2))
@@ -517,7 +517,7 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   rpn_rois_arr = []
   # global grpn_class = rpn_class
   # global grpn_bbox = rpn_bbox
-  for i in 1:size(rpn_class)[end]
+  for i in 1:size(rpn_class, ndims(rpn_class))
     rpn_class_slice = selectdim(rpn_class, ndims(rpn_class), i)    
     rpn_bbox_slice = selectdim(rpn_bbox, ndims(rpn_bbox), i)    
     # @show size(rpn_class_slice'), size(rpn_bbox_slice')
@@ -538,6 +538,7 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   # all the ROIs.
   rpn_rois = reduce(vcat, rpn_rois_arr)  # remove
   @show typeof(rpn_rois)
+  # @show rpn_rois
   # error()
   # return mrcnn_feature_maps, rpn_rois_arr
   if mode == "inference"
@@ -605,10 +606,12 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
   total_images = length(images)
   for epoch in 1:epochs
 
-    img_data, mask, img_class, rpn_bbox, masks = sample_coco(cid, images, classes, masks = masks)
-    molded_image, image_metas, windows = mold_inputs((img_data,))
+    # img_data, mask, img_class, rpn_bbox, masks = sample_coco(cid, images, classes, masks = masks)
+    image, image_metas, gt_class_ids, gt_boxes, gt_masks = load_image_gt(cid, images, classes)
+    # molded_image, image_metas, windows = mold_inputs((img_data,))
+    rpn_match, rpn_bbox = build_rpn_targets(size(image)[1:2], c.anchors, gt_class_ids, gt_boxes)
 
-    rpn_class_logits, rpn_bbox, target_class_ids,
+    rpn_class_logits, rpn_pred_bbox, target_class_ids,
     mrcnn_class_logits, target_deltas, mrcnn_bbox,
     target_mask, mrcnn_mask = predict(c,
                               molded_images,
@@ -618,10 +621,19 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
                               gt_masks,
                               "training")
 
-    l1, l2, l3 = compute_losses(rpn_class_logits, rpn_bbox, target_class_ids,
-                                mrcnn_class_logits, target_deltas, mrcnn_bbox,
-                                target_mask, mrcnn_mask)
+    # Oh God Why
+    # l1, l2, l3 = compute_losses(rpn_class_logits, rpn_bbox, target_class_ids,
+    #                             mrcnn_class_logits, target_deltas, mrcnn_bbox,
+    #                             target_mask, mrcnn_mask)
+    rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
+    rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
+    mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
+    mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
+    mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 
+    loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
+    # FIXME: backprop
+    # back!(l)
   end
 end
 
