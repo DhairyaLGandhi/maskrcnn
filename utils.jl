@@ -8,9 +8,9 @@ include("crop_and_resize.jl")
 
 function compute_iou(box, boxes, box_area, boxes_area)
 	y1 = max.(box[1], boxes[:,1])
-	y2 = max.(box[3], boxes[:,3])
+	y2 = min.(box[3], boxes[:,3])
 	x1 = max.(box[2], boxes[:,2])
-	x2 = max.(box[4], boxes[:,4])
+	x2 = min.(box[4], boxes[:,4])
 	intersection = max.(x2 .- x1, 0) .* max.(y2 .- y1, 0)
     union = box_area .+ boxes_area .- intersection
     iou = intersection ./ union
@@ -28,6 +28,8 @@ function compute_overlaps(boxes1, boxes2)
 	end
 	overlaps
 end
+
+
 
 """
 	gt_box = box = rand(10, 4)
@@ -47,6 +49,12 @@ function box_refinement(box, gt_box)
 	dx = (gt_center_x .- center_x) ./ width
 	dh = log.(abs.(gt_height ./ height))
 	dw = log.(abs.(gt_width ./ width))
+
+	for (i,ff) in enumerate([gt_height, gt_width, height, width, center_x, center_y, gt_center_x, gt_center_y, dy, dx, dh, dw])
+		if length(findall(isinf, ff)) > 0
+			error("infs in $i")
+		end
+	end	
 
 	Flux.stack([dy, dx, dh, dw], 2)
 end
@@ -328,7 +336,7 @@ function generate_pyramid_anchors(scales, ratios, feature_shapes,
 										feature_strides[i], anchor_stride))
 	end
 
-	Flux.param(Float32.(cat(anchors..., dims = 1)))
+	Float32.(cat(anchors..., dims = 1))
 end
 
 """
@@ -400,8 +408,13 @@ function pyramid_roi_align(inputs, pool_size, image_shape)
         # global gpool_size = pool_size
         # error()
 
+        # @show @which crop_and_resize(feature_maps[i], level_boxes, ind, pool_size, pool_size)
+        @show typeof(feature_maps[i])
+
 		pooled_features = crop_and_resize(feature_maps[i], level_boxes, ind, pool_size, pool_size)
 		@show typeof(pooled_features)
+		@show size(pooled_features)
+		@warn "*******************"
 		# for f in pooled_features
 		# 	@show size(f)
 		# end
@@ -640,7 +653,7 @@ end
 
 function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config = Nothing)
 	condition = gt_class_ids .< 0
-	if length(findall(condition)) > 0
+	if any(findall(condition))
 		crowd_ix = findall(x -> x < 0, gt_class_ids)
 		non_crowd_ix = findall(x -> x > 0, gt_class_ids)
 		crowd_boxes = gt_boxes[crowd_ix.data, :]
@@ -693,12 +706,20 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     	roi_gt_boxes = gt_boxes[roi_gt_box_assignment, :]
     	# @show size(roi_gt_boxes)
     	roi_gt_class_ids = gt_class_ids[roi_gt_box_assignment]
+
+    	# no infs in positive_rois or roi_gt_boxes
+    	# infs in deltas
     	deltas = box_refinement(positive_rois, roi_gt_boxes)
     	BBOX_STD_DEV = [0.1 0.1 0.2 0.2]
     	std_dev = BBOX_STD_DEV
 
     	deltas = deltas ./ std_dev
-    	roi_masks = gt_masks[:,:, roi_gt_box_assignment, :]
+    	ff = findall(isinf, deltas)
+    	if length(ff) > 0
+    		error("infs in deltas")
+    	end
+    	roi_masks = gt_masks[:,:, roi_gt_box_assignment]
+    	# roi_gt_boxes = roi_gt_boxes .* 10f3
 
     	boxes = positive_rois
 
@@ -716,6 +737,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 
     		gt_h = gt_y2 .- gt_y1
     		gt_w = gt_x2 .- gt_x1
+    		# @show gt_h
 
     		y1 = (y1 .- gt_y1) ./ gt_h
             x1 = (x1 .- gt_x1) ./ gt_w
@@ -725,17 +747,22 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
             boxes = cat(y1, x1, y2, x2, dims = 2)
         end
 
-        box_ids = 1:size(roi_masks, ndims(roi_masks))
+        box_ids = collect(1:size(roi_masks, ndims(roi_masks)))
 
 		# crop_and_resize(feature_maps, level_boxes, ind, pool_size)
 		MASK_SHAPE = (28, 28)
 		# @info "before crop_and_resize"
 		# @show size(roi_masks)
+		roi_masks = reshape(roi_masks, (size(roi_masks)..., 1))
 		# @show boxes
-		@show size(roi_masks)
 		# roi_masks = dropdims(roi_masks, dims = 4)
 		roi_masks = permutedims(roi_masks, (1,2,4,3))
+		@show size(roi_masks)
+
+		# @show boxes
+		# error()
 		masks = crop_and_resize(roi_masks, boxes, box_ids, MASK_SHAPE...)
+		@show size(masks)
 		masks = dropdims(masks, dims = 3)
 		@info "after crop_and_resize"
 		@show size(masks)
@@ -942,12 +969,13 @@ end
 
 function build_rpn_targets(image_shape, anchors, gt_class_ids, 
 							gt_boxes, config = Nothing)
-	RPN_TRAIN_ANCHORS_PER_IMAGE = 4
+	RPN_TRAIN_ANCHORS_PER_IMAGE = 256
 	RPN_BBOX_STD_DEV = [0.1, 0.1, 0.2, 0.2]
 	rpn_match = zeros(Integer, size(anchors, 1))
 	rpn_bbox = zeros(RPN_TRAIN_ANCHORS_PER_IMAGE, 4)
 
 	crowd_ix = findall(x -> x < 0, gt_class_ids)
+	# crowd_ix = gt_class_ids .< 0
 	if length(crowd_ix) > 0
 		non_crowd_ix = setdiff(1:length(gt_class_ids), crowd_ix)
 		crowd_boxes = gt_boxes[crowd_ix, :]
@@ -961,22 +989,28 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
     end
 
     overlaps = compute_overlaps(anchors, gt_boxes)
+    @show maximum(overlaps)
 
-    anchor_iou_argmax = argmax(overlaps, dims=1)
-    anchor_iou_argmax = map(x -> x.I[1], anchor_iou_argmax)
-    # @show overlaps
+    anchor_iou_argmax = argmax(overlaps, dims=2)
+    @warn size(anchor_iou_argmax)
+    anchor_iou_argmax = map(x -> x.I[2], anchor_iou_argmax)
+    # @show size(overlaps)
+    @show size(anchor_iou_argmax)
     # @show anchor_iou_argmax
-    # anchor_iou_max = overlaps[1:(size(overlaps, 1), anchor_iou_argmax]
-    anchor_iou_max = vec(maximum(overlaps, dims = 1))
+    # anchor_iou_max = overlaps[1:size(overlaps, 1), anchor_iou_argmax]
+    anchor_iou_max = vec(maximum(overlaps, dims = 2))
     # @show "here"
     # ins = findall(x -> x[1] < 0.3 & x[2], zip(anchor_iou_max, no_crowd_bool))
     # @show "after zip"
     # rpn_match[ins] .= -1
+    @show size(anchor_iou_max)
+    @show size(no_crowd_bool)
     inds = (anchor_iou_max .< .3) .& no_crowd_bool
     inds = findall(inds)
     rpn_match[inds] .= -1
 
     gt_iou_argmax = argmax(overlaps, dims = 1)
+    # @show gt_iou_argmax
     gt_iou_argmax = map(x -> x.I[1], gt_iou_argmax)
     rpn_match[gt_iou_argmax] .= 1
     rpn_match[anchor_iou_max .>= 0.7] .= 1
@@ -1036,14 +1070,86 @@ end
 
 function compute_rpn_class_loss(rpn_match, rpn_class_logits)
 	anchor_class = Int.(rpn_match .== 1)
-	indics = findall(!iszero, rpn_match .!= 0)
+	indices = findall(!iszero, rpn_match .!= 0)
 	
+	rpn_class_logits = rpn_class_logits[:, indices, :]
+	rpn_class_logits = dropdims(rpn_class_logits, dims = ndims(rpn_class_logits))
+	# @show size(rpn_class_logits)
+	anchor_class = anchor_class[indices]
+	anchor_class = transpose(Flux.onehotbatch(1:maximum(unique(anchor_class)), anchor_class))
+
+	Flux.logitcrossentropy(rpn_class_logits, anchor_class)
 
 end
 
-function compute_rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox)
-	inds = findall(rpn_match == 1)
+function smooth_l1_loss(y, fx; δ = 1)
+	α = abs(y - fx)
+	abs(α) <= δ && return 0.5f0 * α ^ 2
+	δ * α - (0.5f0 * δ ^ 2)
+end
 
+huber_loss(y, ŷ; kwargs...) = smooth_l1_loss(y, ŷ, kwargs...)
+
+function compute_rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox)
+	inds = findall(rpn_match .== 1)
+
+	rpn_bbox = rpn_bbox[:, inds, :]
+	rpn_bbox = dropdims(rpn_bbox, dims = ndims(rpn_bbox))
+
+	target_bbox = target_bbox[1:size(rpn_bbox,2), :]
+	target_bbox = transpose(target_bbox)
+
+	# smooth L1 loss
+	mean(smooth_l1_loss.(target_bbox, rpn_bbox))
+end
+
+function compute_mrcnn_class_loss(target_class_ids, pred_class_logits)
+	if length(target_class_ids) > 0
+		y = Flux.onehotbatch(target_class_ids, 0:80)
+		return Flux.logitcrossentropy(pred_class_logits, y)
+	else
+		return param(0.0f0)
+	end
+end
+
+function compute_mrcnn_bbox_loss(target_deltas, target_class_ids, pred_bbox)
+	if length(target_class_ids) > 0
+		positive_roi_ix = findall(target_class_ids .> 0)
+
+		positive_roi_class_ids = target_class_ids[positive_roi_ix]
+		target_deltas = target_deltas[positive_roi_ix, :]
+		target_deltas = transpose(target_deltas)
+		# pred_bbox = pred_bbox[positive_roi_class_ids, :, positive_roi_ix]
+		bb = []
+		for i = 1:length(positive_roi_ix)
+			a = pred_bbox[positive_roi_class_ids[i], :, i]
+			push!(bb, a)
+		end
+		pred_bbox = reduce(hcat, bb)
+
+		mean(smooth_l1_loss.(pred_bbox, target_deltas))
+	else
+		return param(0.0f0)
+	end
+end
+
+function compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
+	if length(target_class_ids) > 0
+		positive_ix = findall(target_class_ids .> 0)
+		positive_class_ids = target_class_ids[positive_ix]
+
+		y_true = target_mask[:,:,positive_ix]
+		bb = []
+		for i = 1:length(positive_ix)
+			a = mrcnn_mask[:,:,positive_class_ids[i], i]
+			push!(bb, a)
+		end
+		y_pred = cat(bb..., dims = 3)
+
+		mean(Flux.binarycrossentropy.(y_pred, y_true))
+	else
+		return param(0.0f0)
+	end
 end
 
 ########################
