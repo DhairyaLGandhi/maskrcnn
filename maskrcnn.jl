@@ -197,6 +197,8 @@ mutable struct Mask
   chain
 end
 
+@treelike Mask
+
 function Mask(depth, pool_size, image_shape, num_classes)
   chain = Chain(ConvBlock((3,3), 256=>256, pad = (3,3)),
                 ConvBlock((3,3), 256=>256),
@@ -419,6 +421,8 @@ mutable struct MaskRCNN
   mask
 end
 
+@treelike MaskRCNN
+
 function build(config = nothing)
   resnet = ResNet("resnet101", stage5=true)
   fpn = FPN(256,
@@ -603,6 +607,13 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
   c = build()
   masks = Dict()
 
+  ps_mask = params(c.mask.chain)
+  ps_classifier = params(c.classifier)
+  ps_fpn = params(c.fpn)
+  ps_rpn = params(c.rpn)
+  ps = Params([ps_fpn, ps_rpn, ps_classifier, ps_mask])
+  opt = Descent(ps)
+
   total_images = length(images)
   for epoch in 1:epochs
 
@@ -625,15 +636,26 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
     # l1, l2, l3 = compute_losses(rpn_class_logits, rpn_bbox, target_class_ids,
     #                             mrcnn_class_logits, target_deltas, mrcnn_bbox,
     #                             target_mask, mrcnn_mask)
-    rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
-    rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
-    mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
-    mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
-    mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
+    # rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
+    # rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
+    # mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
+    # mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
+    # mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 
-    loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
+    # loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
     # FIXME: backprop
     # back!(l)
+    gs = Tracker.gradient(ps) do
+      rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
+      rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
+      mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
+      mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
+      mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
+
+      loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
+    end
+
+    # update!(opt, ps, gs)
   end
 end
 
