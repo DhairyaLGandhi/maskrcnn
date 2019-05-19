@@ -35,8 +35,16 @@ end
 	gt_box = box = rand(10, 4)
 """
 function box_refinement(box, gt_box)
+	@show typeof(box)
+	@show typeof(gt_box)
+	# box = Float32.(box)
+	# gt_box = Float32.(gt_box)
 	height = box[:, 3] .- box[:, 1]
 	width = box[:, 4] .- box[:, 2]
+	# width = replace(x -> x < 1f-3 ? 1.f0 : x, width)
+	# height = replace(x -> x < 1f-3 ? 1.f0 : x, height)
+	width = clamp.(width, 1f-3, 1.f0)
+	height = clamp.(height, 1f-3, 1.f0)
 	center_y = box[:, 1] .+ 0.5f0 .* height
 	center_x = box[:, 2] .+ 0.5f0 .* width
 
@@ -49,12 +57,14 @@ function box_refinement(box, gt_box)
 	dx = (gt_center_x .- center_x) ./ width
 	dh = log.(abs.(gt_height ./ height))
 	dw = log.(abs.(gt_width ./ width))
+	@show gt_center_x .- center_x
+	@show width
 
-	for (i,ff) in enumerate([gt_height, gt_width, height, width, center_x, center_y, gt_center_x, gt_center_y, dy, dx, dh, dw])
-		if length(findall(isinf, ff)) > 0
-			error("infs in $i")
-		end
-	end	
+	# for (i,ff) in enumerate([gt_height, gt_width, height, width, center_x, center_y, gt_center_x, gt_center_y, dy, dx, dh, dw])
+	# 	if length(findall(isinf, ff)) > 0
+	# 		error("infs in $i")
+	# 	end
+	# end	
 
 	Flux.stack([dy, dx, dh, dw], 2)
 end
@@ -664,7 +674,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 
         crowd_overlaps = bbox_overlaps2(proposals, crowd_boxes)
         crowd_iou_max = maximum(crowd_overlaps, dims = 2)
-        no_crowd_bool = crowd_iou_max .< 0.001
+        no_crowd_bool = crowd_iou_max .< 0.001f0
 
     else
     	no_crowd_bool = trues(size(proposals, 1))
@@ -676,6 +686,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     @show typeof(proposals)
     @show typeof(gt_boxes)
     overlaps = bbox_overlaps2(proposals, gt_boxes)
+    @show overlaps |> size
     @show "after first op"
     roi_iou_max = maximum(overlaps, dims = 2)
 
@@ -684,9 +695,21 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     if sum(positive_roi_bool) > 0
     	positive_indices = findall(positive_roi_bool)
     	@show length(positive_indices)
+
+    	# Filter out tiny boxes
+    	# p = proposals[positive_indices, :]
+    	# height = p[:,4] .- p[:,2]
+    	# width = p[:,3] .- p[:,1]
+    	# fh1 = findall(iszero, height)
+    	# fw1 = findall(iszero, width)
+    	# ff = union(fh1, fw1)
+    	# h = setdiff(1:size(p, 1), ff)
+    	# proposals = proposals[h,:]
+
+    	# Aim for 33% of the population to have some sensible bbox
     	TRAIN_ROIS_PER_IMAGE = 200
-    	ROI_POSITIVE_RATIO = 0.33
-    	positive_count = round(Integer, TRAIN_ROIS_PER_IMAGE * ROI_POSITIVE_RATIO)
+    	ROI_POSITIVE_RATIO = 0.33f0
+    	positive_count = round(Int32, TRAIN_ROIS_PER_IMAGE * ROI_POSITIVE_RATIO)
     	rand_idx = shuffle(positive_indices)
     	rand_idx = rand_idx[1:positive_count]
     	# @show length(rand_idx)
@@ -709,15 +732,18 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 
     	# no infs in positive_rois or roi_gt_boxes
     	# infs in deltas
+    	@show typeof(positive_rois)
+    	@show typeof(roi_gt_boxes)
     	deltas = box_refinement(positive_rois, roi_gt_boxes)
-    	BBOX_STD_DEV = [0.1 0.1 0.2 0.2]
+    	@show typeof(deltas)
+    	BBOX_STD_DEV = [0.1f0 0.1f0 0.2f0 0.2f0]
     	std_dev = BBOX_STD_DEV
 
     	deltas = deltas ./ std_dev
-    	ff = findall(isinf, deltas)
-    	if length(ff) > 0
-    		error("infs in deltas")
-    	end
+    	# ff = findall(isinf, deltas)
+    	# if length(ff) > 0
+    	# 	error("infs in deltas")
+    	# end
     	roi_masks = gt_masks[:,:, roi_gt_box_assignment]
     	# roi_gt_boxes = roi_gt_boxes .* 10f3
 
@@ -798,12 +824,12 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 		@show size(positive_rois)
 		@show size(negative_rois)
 		rois = vcat(positive_rois, negative_rois)
-		zs = zeros(Integer, negative_count)
+		zs = zeros(Int32, negative_count)
 		roi_gt_class_ids = vcat(roi_gt_class_ids, zs)
-		zs = zeros(negative_count, 4)
+		zs = zeros(Float32, negative_count, 4)
 		deltas = vcat(deltas, zs)
 		@show typeof(deltas)
-		zs = zeros(MASK_SHAPE..., negative_count)
+		zs = zeros(Float32, MASK_SHAPE..., negative_count)
 		@show size(masks)
 		@show size(zs)
 		masks = cat(masks, zs, dims = 3)
@@ -811,17 +837,17 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 		rois = positive_rois
 	elseif negative_count > 0
 		rois = negative_rois
-		zs = zeros(negative_count)
+		zs = zeros(Float32, negative_count)
 		roi_gt_class_ids = zs
-		zs = zeros(Integer, negative_count, 4)
+		zs = zeros(Float32, negative_count, 4)
 		deltas = zs
-		zs = zeros(MASK_SHAPE..., negative_count)
+		zs = zeros(Float32, MASK_SHAPE..., negative_count)
 		masks = zs
 	else
-		rois = []
-		roi_gt_class_ids = []
-		deltas = []
-		masks = []
+		rois = Float32[]
+		roi_gt_class_ids = Float32[]
+		deltas = Float32[]
+		masks = Float32[]
 	end
 
 	rois, roi_gt_class_ids, deltas, masks
@@ -970,9 +996,9 @@ end
 function build_rpn_targets(image_shape, anchors, gt_class_ids, 
 							gt_boxes, config = Nothing)
 	RPN_TRAIN_ANCHORS_PER_IMAGE = 256
-	RPN_BBOX_STD_DEV = [0.1, 0.1, 0.2, 0.2]
+	RPN_BBOX_STD_DEV = [0.1f0, 0.1f0, 0.2f0, 0.2f0]
 	rpn_match = zeros(Integer, size(anchors, 1))
-	rpn_bbox = zeros(RPN_TRAIN_ANCHORS_PER_IMAGE, 4)
+	rpn_bbox = zeros(Float32, RPN_TRAIN_ANCHORS_PER_IMAGE, 4)
 
 	crowd_ix = findall(x -> x < 0, gt_class_ids)
 	# crowd_ix = gt_class_ids .< 0
@@ -983,7 +1009,7 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
 		gt_boxes = gt_boxes[non_crowd_ix, :]
 		crowd_overlaps = compute_overlaps(anchors, crowd_boxes)
 		crowd_iou_max = maximum(crowd_overlaps, dims = 2)
-        no_crowd_bool = crowd_iou_max .< 0.001
+        no_crowd_bool = crowd_iou_max .< 0.001f0
     else
     	no_crowd_bool = trues(size(anchors, 1))
     end
@@ -1005,7 +1031,7 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
     # rpn_match[ins] .= -1
     @show size(anchor_iou_max)
     @show size(no_crowd_bool)
-    inds = (anchor_iou_max .< .3) .& no_crowd_bool
+    inds = (anchor_iou_max .< .3f0) .& no_crowd_bool
     inds = findall(inds)
     rpn_match[inds] .= -1
 
@@ -1013,7 +1039,7 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
     # @show gt_iou_argmax
     gt_iou_argmax = map(x -> x.I[1], gt_iou_argmax)
     rpn_match[gt_iou_argmax] .= 1
-    rpn_match[anchor_iou_max .>= 0.7] .= 1
+    rpn_match[anchor_iou_max .>= 0.7f0] .= 1
 
     ids = findall(x -> x == 1, rpn_match)
     extra = length(ids) - div(RPN_TRAIN_ANCHORS_PER_IMAGE, 2)
@@ -1044,13 +1070,13 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
 
     	gt_h = gt[3] - gt[1]
         gt_w = gt[4] - gt[2]
-        gt_center_y = gt[1] + (0.5 * gt_h)
-        gt_center_x = gt[2] + (0.5 * gt_w)
+        gt_center_y = gt[1] + (0.5f0 * gt_h)
+        gt_center_x = gt[2] + (0.5f0 * gt_w)
         # Anchor
         a_h = a[3] - a[1]
         a_w = a[4] - a[2]
-        a_center_y = a[1] + (0.5 * a_h)
-        a_center_x = a[2] + (0.5 * a_w)
+        a_center_y = a[1] + (0.5f0 * a_h)
+        a_center_x = a[2] + (0.5f0 * a_w)
 
         # Compute the bbox refinement that the RPN should predict.
         rpn_bbox[ix, :] = [
@@ -1135,7 +1161,7 @@ end
 
 function compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 	if length(target_class_ids) > 0
-		positive_ix = findall(target_class_ids .> 0)
+		positive_ix = findall(target_class_ids .> 0.f0)
 		positive_class_ids = target_class_ids[positive_ix]
 
 		y_true = target_mask[:,:,positive_ix]
