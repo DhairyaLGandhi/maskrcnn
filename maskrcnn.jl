@@ -626,7 +626,7 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
     rpn_class_logits, rpn_pred_bbox, target_class_ids,
     mrcnn_class_logits, target_deltas, mrcnn_bbox,
     target_mask, mrcnn_mask = predict(c,
-                              molded_images,
+                              image,
                               image_metas,
                               gt_class_ids,
                               gt_boxes,
