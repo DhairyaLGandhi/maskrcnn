@@ -607,12 +607,13 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
   c = build()
   masks = Dict()
 
-  ps_mask = params(c.mask.chain)
-  ps_classifier = params(c.classifier)
-  ps_fpn = params(c.fpn)
-  ps_rpn = params(c.rpn)
-  ps = Params([ps_fpn, ps_rpn, ps_classifier, ps_mask])
-  opt = Descent(ps)
+  # ps_mask = params(c.mask.chain)
+  # ps_classifier = params(c.classifier)
+  # ps_fpn = params(c.fpn)
+  # ps_rpn = params(c.rpn)
+  # ps = Params([ps_fpn, ps_rpn, ps_classifier, ps_mask])
+  ps = params(c)
+  opt = Descent()
 
   total_images = length(images)
   for epoch in 1:epochs
@@ -643,8 +644,7 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
     # mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 
     # loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
-    # FIXME: backprop
-    # back!(l)
+
     gs = Tracker.gradient(ps) do
       rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
       rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
@@ -655,7 +655,7 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
       loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
     end
 
-    # update!(opt, ps, gs)
+    update!(opt, ps, gs)
   end
 end
 
