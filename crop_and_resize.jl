@@ -217,7 +217,7 @@ function crop_and_resize(image, boxes, box_ind,
 		height_scale = (crop_height > 1) ? (y2 - y1) * (image_height - 1.0f0) / (crop_height - 1.0f0) : 0.0f0
 		width_scale = (crop_width > 1) ? (x2 - x1) * (image_width - 1.0f0) / (crop_width - 1.0f0) : 0.0f0
 
-		for p = CartesianIndices((1:crop_width, 1:crop_height)) # y = 1:crop_width, x = 1:crop_height
+		for p = CartesianIndices((1:crop_width, 1:crop_height))
 			y, x = p.I
 			in_y = y1 * (image_height - 1) + y * height_scale
 
@@ -245,10 +245,10 @@ function crop_and_resize(image, boxes, box_ind,
 			right_x_index == 0 && (right_x_index = crop_width)
 			x_lerp = in_x - left_x_index
 
-			top_left = image_data[top_y_index, left_x_index, :, b_in]
-			top_right = image_data[top_y_index, right_x_index, :, b_in]
-			bottom_left = image_data[bottom_y_index, left_x_index, :, b_in]
-			bottom_right = image_data[bottom_y_index, right_x_index, :, b_in]
+			top_left = @views image_data[top_y_index, left_x_index, :, b_in]
+			top_right = @views image_data[top_y_index, right_x_index, :, b_in]
+			bottom_left = @views image_data[bottom_y_index, left_x_index, :, b_in]
+			bottom_right = @views image_data[bottom_y_index, right_x_index, :, b_in]
 
 			top = @. top_left + (top_right - top_left) * x_lerp
 			bottom = @. bottom_left + (bottom_right - bottom_left) * x_lerp
