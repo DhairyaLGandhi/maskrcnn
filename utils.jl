@@ -4,7 +4,8 @@ using Flux, Flux.Tracker, Flux.Optimise
 using Flux.Tracker: @grad
 using Base.Iterators
 using Statistics
-include("crop_and_resize.jl")
+include("crop_and_resize_new.jl")
+include("load_weights.jl")
 
 function compute_iou(box, boxes, box_area, boxes_area)
 	y1 = max.(box[1], boxes[:,1])
@@ -35,19 +36,19 @@ end
 	gt_box = box = rand(10, 4)
 """
 function box_refinement(box, gt_box)
-	@show typeof(box)
-	@show typeof(gt_box)
+	# @show box
+	# @show gt_box
 	# box = Float32.(box)
 	# gt_box = Float32.(gt_box)
 	height = box[:, 3] .- box[:, 1]
 	width = box[:, 4] .- box[:, 2]
 	# width = replace(x -> x < 1f-3 ? 1.f0 : x, width)
 	# height = replace(x -> x < 1f-3 ? 1.f0 : x, height)
-	width = clamp.(width, 1f-3, 1.f0)
-	height = clamp.(height, 1f-3, 1.f0)
+	width = clamp.(width, 1f-3, 1.f0) # remove
+	height = clamp.(height, 1f-3, 1.f0) # remove
 	center_y = box[:, 1] .+ 0.5f0 .* height
 	center_x = box[:, 2] .+ 0.5f0 .* width
-
+	# return center_x
 	gt_height = gt_box[:, 3] .- gt_box[:, 1]
 	gt_width = gt_box[:, 4] .- gt_box[:, 2]
 	gt_center_y = gt_box[:, 1] .+ 0.5f0 .* gt_height
@@ -55,8 +56,9 @@ function box_refinement(box, gt_box)
 
 	dy = (gt_center_y .- center_y) ./ height
 	dx = (gt_center_x .- center_x) ./ width
-	dh = log.(abs.(gt_height ./ height))
-	dw = log.(abs.(gt_width ./ width))
+	# return dy
+	dh = log.(gt_height ./ height)
+	dw = log.(gt_width ./ width)
 	@show gt_center_x .- center_x
 	@show width
 
@@ -66,7 +68,7 @@ function box_refinement(box, gt_box)
 	# 	end
 	# end	
 
-	Flux.stack([dy, dx, dh, dw], 2)
+	hcat(dy, dx, dh, dw)
 end
 
 # Images.jl and Interpolations cannot track types properly
@@ -74,7 +76,6 @@ end
 # import Images.imresize
 # import Images.ImageTransformations.imresize!
 # import Images.ImageTransformations.imresize_type
-# imresize_type(c::Tracker.TrackedReal) = imresize_type(Tracker.data(c))
 # # imresize!(dest::AbstractArray, original::Tracker.TrackedArray) = Tracker.track(imresize!, dest), original)
 # imresize(original::TrackedArray, new_size::Dims; kw...) = Tracker.track(imresize, original, new_size; kw...)
 # Images.ImageTransformations.Interpolations.tcoef(A::TrackedArray) = eltype(A)
@@ -142,7 +143,7 @@ end
 function bbox_overlaps(boxes1, boxes2)
 	max_boxes = max.(boxes1, boxes2)
 	zs = similar(boxes1[:,1])
-	zs .= 0.
+	zs .= 0.f0
 	intersection = max.(max_boxes[:,4] .- max_boxes[:,2], zs) .* max.(max_boxes[:,3] .- max_boxes[:,1], zs)
 	b1_areas = (boxes1[:,3] .- boxes1[:,1]) .* (boxes1[:,4] .- boxes1[:,2])
 	b2_areas = (boxes2[:,3] .- boxes2[:,1]) .* (boxes2[:,4] .- boxes2[:,2])
@@ -162,6 +163,7 @@ function apply_box_deltas(boxes, deltas)
   @show deltas[1,:]
   @show findall(isnan, boxes)
   @show findall(isnan, deltas)
+  @show typeof(deltas)
   # error("nans")
   # bs = copy(boxes)
 
@@ -346,7 +348,7 @@ function generate_pyramid_anchors(scales, ratios, feature_shapes,
 										feature_strides[i], anchor_stride))
 	end
 
-	Float32.(cat(anchors..., dims = 1))
+	gpu(cat(anchors..., dims = 1))
 end
 
 """
@@ -363,21 +365,24 @@ function pyramid_roi_align(inputs, pool_size, image_shape)
 	@show typeof(feature_maps)
 	# @show findall(x -> isnan(x) || isinf(x), boxes)
 	for f in feature_maps
-		@show size(f)
+		@show size(f), typeof(f)
 	end
 	@warn "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
 
-	h = copy(boxes[:,3] .- boxes[:,1])
-	w = copy(boxes[:,4] .- boxes[:,2])
+	h = boxes[:,3] .- boxes[:,1]
+	w = boxes[:,4] .- boxes[:,2]
 	# @show boxes
 	# @show findall(x -> isinf(x) || isnan(x), h)
 	# @show findall(x -> isinf(x) || isnan(x), w) # error on nans here or remove nan cases
 	# @show w
+	# @show findall(iszero, h)
 	image_area = prod(image_shape[1:2])
-	roi_level = 4 .+ log2.( sqrt.(h.*w) ./ (224.0f0/sqrt(image_area) ))
-	# @show roi_level
-	roi_level_data = map(x -> isnan(x) || isinf(x) ? 0 : x, Tracker.data(roi_level)) # remove
-	roi_level = round.(Int, roi_level_data)
+	@show typeof(h), typeof(w)
+	roi_level = 4.0f0 .+ log2.( sqrt.(h.*w) ./ (224.0f0/sqrt(image_area) ))
+	@show roi_level |> typeof
+	# roi_level_data = map(x -> isnan(x) || isinf(x) ? 0.0f0 : x, roi_level) # remove
+	roi_level = round.(roi_level)
+	@show roi_level
 	roi_level = clamp.(roi_level, 2,5)
 	# @show roi_level
 
@@ -394,7 +399,6 @@ function pyramid_roi_align(inputs, pool_size, image_shape)
 		push!(box_to_level, findall(ix))
 
 		# don't track further
-		level_boxes = Tracker.data(level_boxes)
 		global glevel = level_boxes
 
 		# FIXME: `ind` should correlate bounding box to index of image
@@ -421,7 +425,7 @@ function pyramid_roi_align(inputs, pool_size, image_shape)
         # @show @which crop_and_resize(feature_maps[i], level_boxes, ind, pool_size, pool_size)
         @show typeof(feature_maps[i])
 
-		pooled_features = crop_and_resize(feature_maps[i], level_boxes, ind, pool_size, pool_size)
+		pooled_features = crop_and_resize(feature_maps[i], level_boxes, ind; crop_height = pool_size, crop_width = pool_size, extrapolation_value = 0.f0)
 		@show typeof(pooled_features)
 		@show size(pooled_features)
 		@warn "*******************"
@@ -438,13 +442,15 @@ function pyramid_roi_align(inputs, pool_size, image_shape)
 	# 		@show  size(v)
 	# 	end
 	# end
-	pooled = cat(pooled..., dims = 4)
+	pooled = cat(pooled..., dims = 4) |> gpu
+        @show typeof(pooled)
 	box_to_level = reduce(vcat, box_to_level)
 
 	# inds = sortperm(box_to_level)
 	sinds = 1:size(pooled, ndims(pooled))
-	# @show typeof(pooled)
-	pooled = selectdim(pooled, ndims(pooled), sinds)
+	@show size(pooled)
+	# pooled = selectdim(pooled, ndims(pooled), sinds)
+	# pooled = [:, :, :, sinds]
 	pooled
 end
 	
@@ -503,7 +509,13 @@ function nms2(boxes_with_scores, threshold)
     areas = @. (x2 - x1 + 1) * (y2 - y1 + 1)
     @info "Mean of areas: $(mean(areas))"
     @info "sample boxes: $(boxes_with_scores[1,:])"
-    order = sortperm(scores, rev = true)
+
+    # sorting is inefficient on the GPU
+    # moving the actual thing off GPU
+    # breaks tracking 
+    s = copy(scores) |> cpu
+    order = sortperm(s, rev = true)
+    @show "after order"
 
     keep = 1:size(boxes_with_scores, 1) |> collect # need to setindex in keep
     num_out = 0
@@ -518,10 +530,11 @@ function _nms!(keep_out, num_out, boxes, order, areas, nms_overlap_thresh)
 	boxes_num = size(boxes, 1)
 	boxes_dim = size(boxes, 2)
 
-	keep_out_flat = Tracker.data(keep_out)
-	boxes_flat = Tracker.data(boxes)
-	order_flat = Tracker.data(order)
-	areas_flat = Tracker.data(areas)
+	keep_out_flat = keep_out
+	@show typeof(boxes)
+	boxes_flat = boxes
+	order_flat = order
+	areas_flat = areas
 
 	suppressed = zeros(boxes_num)
 
@@ -538,7 +551,19 @@ function _nms!(keep_out, num_out, boxes, order, areas, nms_overlap_thresh)
 		iy2 = boxes_flat[i, 4]
 
 		iarea = areas_flat[i]
-
+		
+		# _j = collect((_i+1):boxes_num)
+		# j = order_flat[_j]
+		# xx1 = max.(ix1, boxes_flat[j,1])
+		# yy1 = max.(iy1, boxes_flat[j,2])
+		# xx2 = min.(ix2, boxes_flat[j,3])
+		# yy2 = min.(iy2, boxes_flat[j,4])
+		# w = max.(0.0f0, xx2 .- xx1 .+ 1.f0)
+		# h = max(0.0f0, yy2 .- yy1 .+ 1.f0)
+		# inter = w .* h
+		# ovr = inter ./ (iarea .+ areas_flat[j] .- inter)
+		# iis = ovr .>= nms_overlap_thresh
+		# suppressed
 		for _j = (_i+1):boxes_num
 			j = order_flat[_j]
 			suppressed[j] == 1 && continue
@@ -574,34 +599,44 @@ end
 	config.RPN_BBOX_STD_DEV = [0.1 0.1 0.2 0.2]
 	config.IMAGE_SHAPE = [1024, 1024, 3]
 """
-function proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=Nothing)
-	scores = inputs[1][:,2]
-	@show size(inputs[1])
-	@show size(inputs[2])
+function proposal_layer(rpn_class_slice, rpn_bbox_slice; proposal_count = 2000, nms_threshold = 0.7f0, anchors, config=Nothing)
+	# rpn_class_slice = inputs[1]
+	# rpn_bbox_slice = inputs[2]
+	# return rpn_class_slice, rpn_bbox_slice .* 8.0f0
+	scores = rpn_class_slice[:,2]
+	# @show typeof(inputs[1])
+	# @show typeof(inputs[2])
 	
-	deltas = inputs[2]
-	@show size(deltas)
-	RPN_BBOX_STD_DEV = [0.1f0 0.1f0 0.2f0 0.2f0]
+	deltas = rpn_bbox_slice
+	@show typeof(deltas)
+	RPN_BBOX_STD_DEV = [0.1f0 0.1f0 0.2f0 0.2f0] |> gpu
 	IMAGE_SHAPE = (1024, 1024, 3)
 
 	# 
 	deltas = deltas .* RPN_BBOX_STD_DEV
+	global pldeltas = deltas
+	# return scores, deltas
 	pre_nms_limit = min(6000, size(anchors, 1))# ndims(anchors))) # min -> minimum
 	# scores, order = sort(scores, rev = true), sortperm(scores, rev = true)
-	order = sortperm(scores, rev = true)
-	scores = scores[order]
+	# return scores, deltas
+	# Breaks Flux AF
+	# sorting is inefficient on the GPU
+	s = cpu(copy(scores))
+	order = sortperm(s, rev = true)
+	# scores = scores[order]
 	order = order[1:pre_nms_limit]
-	scores = scores[1:pre_nms_limit]
-
-
+	# scores = map(x -> x + zero(x), scores)
+	scores = scores[order]
+	# deltas = map(x -> x + zero(x), deltas)
 	deltas = deltas[order, :]
 	anchors = anchors[order, :]
+	# return scores, deltas
 	@show mean(deltas)
 	@show maximum(deltas)
 	# global gdeltas = deltas
 	boxes = apply_box_deltas(anchors, deltas)
 	height, width = IMAGE_SHAPE[1:2]
-	window = [0.0f0 0.0f0 height width]
+	window = [0.0f0 0.0f0 height width] |> gpu
 	@show typeof(boxes)
 	boxes = clip_boxes(boxes, window)
 
@@ -609,6 +644,7 @@ function proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=N
 	imp = hcat(boxes, scores)
 	@show size(boxes)
 	# @show 
+	# return imp
 	@show "now for nms"
 	@show imp[1,:]
 	keep = nms2(imp, nms_threshold)
@@ -618,7 +654,7 @@ function proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=N
 	if proposal_count < length(keep)
 		keep = keep[1:proposal_count]
 	end
-	normaliser = [height width height width]
+	normaliser = [height width height width] |> gpu
 	normalised_boxes = boxes[keep,:] ./ normaliser
 	@show size(normalised_boxes)
 
@@ -633,8 +669,14 @@ function proposal_layer(inputs, proposal_count, nms_threshold, anchors, config=N
 	# end
 	# nonnanrows = setdiff(1:size(normalised_boxes, 1), nanrows)
 	##########################
+	@show typeof(normalised_boxes)
 
-	normalised_boxes#[nonnanrows,:]
+	nb = copy(normalised_boxes) |> cpu
+	h = .!isapprox.(nb[:, 3] .- nb[:, 1], 0.f0, atol = 1f-2)
+	w = .!isapprox.(nb[:, 4] .- nb[:, 2], 0.f0, atol = 1f-2)
+	idx = findall(h .| w)
+	normalised_boxes = normalised_boxes[idx, :]
+	normalised_boxes
 	# error()
 end
 
@@ -651,7 +693,7 @@ function bbox_overlaps2(boxes1, boxes2)
     x1 = max.(b1_x1, b2_x1)
     y2 = min.(b1_y2, b2_y2)
     x2 = min.(b1_x2, b2_x2)
-    zs = zeros(size(y1, 1))
+    zs = zeros(size(y1, 1)) |> gpu
     intersection = max.(x2 .- x1 .+ 1, zs) .* max.(y2 .- y1 .+ 1, zs)
     b1_area = (b1_y2 .- b1_y1 .+ 1) .* (b1_x2 .- b1_x1 .+ 1)
     b2_area = (b2_y2 .- b2_y1 .+ 1) .* (b2_x2 .- b2_x1 .+ 1)
@@ -662,12 +704,16 @@ function bbox_overlaps2(boxes1, boxes2)
 end
 
 function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, config = Nothing)
+	# IMAGE_SHAPE = (1024, 1024, 3)
+	# multiplier = [IMAGE_SHAPE[1] IMAGE_SHAPE[2] IMAGE_SHAPE[1] IMAGE_SHAPE[2]] |> gpu
+	# proposals = proposals .* multiplier
+	# return proposals
 	condition = gt_class_ids .< 0
 	if any(findall(condition))
 		crowd_ix = findall(x -> x < 0, gt_class_ids)
 		non_crowd_ix = findall(x -> x > 0, gt_class_ids)
-		crowd_boxes = gt_boxes[crowd_ix.data, :]
-		crowd_masks = gt_masks[crowd_ix.data, :, :]
+		crowd_boxes = gt_boxes[crowd_ix, :]
+		crowd_masks = gt_masks[crowd_ix, :, :]
 		gt_class_ids = gt_class_ids[non_crowd_ix]
 		gt_boxes = gt_boxes[non_crowd_ix, :]
         gt_masks = gt_masks[:, :, non_crowd_ix]
@@ -677,6 +723,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
         no_crowd_bool = crowd_iou_max .< 0.001f0
 
     else
+	@show "extra"
     	no_crowd_bool = trues(size(proposals, 1))
     end
 
@@ -689,12 +736,14 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     @show overlaps |> size
     @show "after first op"
     roi_iou_max = maximum(overlaps, dims = 2)
-
+    # return overlaps
     positive_roi_bool = roi_iou_max .>= 0.5f0
+    # return roi_iou_max
 
     if sum(positive_roi_bool) > 0
     	positive_indices = findall(positive_roi_bool)
     	@show length(positive_indices)
+	@show typeof(positive_indices)
 
     	# Filter out tiny boxes
     	# p = proposals[positive_indices, :]
@@ -709,10 +758,12 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     	# Aim for 33% of the population to have some sensible bbox
     	TRAIN_ROIS_PER_IMAGE = 200
     	ROI_POSITIVE_RATIO = 0.33f0
-    	positive_count = round(Int32, TRAIN_ROIS_PER_IMAGE * ROI_POSITIVE_RATIO)
+    	positive_count = min(length(positive_indices),
+		round(Int32, TRAIN_ROIS_PER_IMAGE * ROI_POSITIVE_RATIO))
+	# positive_count = round(Int32, TRAIN_ROIS_PER_IMAGE * ROI_POSITIVE_RATIO)
     	rand_idx = shuffle(positive_indices)
     	rand_idx = rand_idx[1:positive_count]
-    	# @show length(rand_idx)
+    	@show length(rand_idx)
     	# @show positive_indices
     	# @show positive_indices[rand_idx[1]]
 
@@ -722,10 +773,19 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     	positive_count = size(positive_indices, 1)
     	positive_indices = map(x -> x.I[1], positive_indices)
     	positive_rois = proposals[positive_indices, :]
+	@show size(positive_rois)
+	# return positive_rois
 
-    	positive_overlaps = overlaps[Tracker.data(positive_indices), :]
-    	roi_gt_box_assignment = findmax(positive_overlaps.data, dims = 2)[2]
-    	roi_gt_box_assignment = vec(map(x -> x.I[2], roi_gt_box_assignment))
+	positive_indices = Int.(positive_indices)
+    	positive_overlaps = overlaps[positive_indices, :]
+	# return positive_overlaps
+	global gpositive_overlaps = positive_overlaps
+	# gradients dropped here
+    	# roi_gt_box_assignment = findmax(positive_overlaps.data, dims = 2)[2]
+	# @show roi_gt_box_assignment
+	# @show typeof(roi_gt_box_assignment)
+    	# roi_gt_box_assignment = vec(map(x -> x.I[2], roi_gt_box_assignment))
+	roi_gt_box_assignment = map(argmax, eachrow(positive_overlaps))
     	roi_gt_boxes = gt_boxes[roi_gt_box_assignment, :]
     	# @show size(roi_gt_boxes)
     	roi_gt_class_ids = gt_class_ids[roi_gt_box_assignment]
@@ -734,9 +794,11 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     	# infs in deltas
     	@show typeof(positive_rois)
     	@show typeof(roi_gt_boxes)
+	# return positive_rois
     	deltas = box_refinement(positive_rois, roi_gt_boxes)
+	# return deltas
     	@show typeof(deltas)
-    	BBOX_STD_DEV = [0.1f0 0.1f0 0.2f0 0.2f0]
+    	BBOX_STD_DEV = [0.1f0 0.1f0 0.2f0 0.2f0] |> gpu
     	std_dev = BBOX_STD_DEV
 
     	deltas = deltas ./ std_dev
@@ -745,16 +807,18 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     	# 	error("infs in deltas")
     	# end
     	roi_masks = gt_masks[:,:, roi_gt_box_assignment]
-    	# roi_gt_boxes = roi_gt_boxes .* 10f3
 
     	boxes = positive_rois
-
+	@show size(boxes)
+	@show size(roi_masks)
+	@show size(roi_gt_boxes)
+	# return boxes
     	USE_RPN_ROIS = true
     	if USE_RPN_ROIS
-    		y1 = positive_rois[:, 1]
-    		x1 = positive_rois[:, 2]
-    		y2 = positive_rois[:, 3]
-    		x2 = positive_rois[:, 4]
+    		y1 = boxes[:, 1]
+    		x1 = boxes[:, 2]
+    		y2 = boxes[:, 3]
+    		x2 = boxes[:, 4]
 
     		gt_y1 = roi_gt_boxes[:, 1]
     		gt_x1 = roi_gt_boxes[:, 2]
@@ -769,10 +833,15 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
             x1 = (x1 .- gt_x1) ./ gt_w
             y2 = (y2 .- gt_y1) ./ gt_h
             x2 = (x2 .- gt_x1) ./ gt_w
-
-            boxes = cat(y1, x1, y2, x2, dims = 2)
+	    # return y1, x1, y2, x2
+            tboxes = hcat(y1, x1, y2, x2)
+	    # return tboxes
+	    @show size(tboxes)
+	    @show typeof(y1), typeof(x1), typeof(y2), typeof(x2) 
+            @show length(y1), length(x1), length(y2), length(x2)
+	    @info "inside the block"
         end
-
+	# return tboxes
         box_ids = collect(1:size(roi_masks, ndims(roi_masks)))
 
 		# crop_and_resize(feature_maps, level_boxes, ind, pool_size)
@@ -780,76 +849,98 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
 		# @info "before crop_and_resize"
 		# @show size(roi_masks)
 		roi_masks = reshape(roi_masks, (size(roi_masks)..., 1))
+		# return boxes, roi_masks
 		# @show boxes
-		# roi_masks = dropdims(roi_masks, dims = 4)
+		@show size(roi_masks)
+		# roi_masks = dropdims(roi_masks, dims = 3)
 		roi_masks = permutedims(roi_masks, (1,2,4,3))
 		@show size(roi_masks)
+		@show typeof(roi_masks)
+		@show typeof(tboxes)
 
-		# @show boxes
+		@show size(tboxes)
+		global groi_masks = roi_masks
+		global gboxes_kill_me = tboxes
+		global gbox_ids = box_ids
+		@show MASK_SHAPE
+			
 		# error()
-		masks = crop_and_resize(roi_masks, boxes, box_ids, MASK_SHAPE...)
-		@show size(masks)
+		masks = crop_and_resize(roi_masks, tboxes, box_ids; crop_height = MASK_SHAPE[1], crop_width = MASK_SHAPE[2], extrapolation_value = 0.f0)
+		# return masks
+		# @show size(masks)
+		# masks = permutedims(masks, (1,2,4,3))
 		masks = dropdims(masks, dims = 3)
-		@info "after crop_and_resize"
-		@show size(masks)
-		masks = round.(masks)
+		# @info "after crop_and_resize"
+		# @show size(masks)
+		# masks = round.(masks)
+		# return masks
 	else
 		positive_count = 0
 	end
 
 	negative_roi_bool = roi_iou_max .< 0.5
-	negative_roi_bool = negative_roi_bool .& no_crowd_bool
+        # @show typeof(negative_roi_bool)
+        # @show typeof(no_crowd_bool)
+	negative_roi_bool = cpu(copy(negative_roi_bool)) .& no_crowd_bool
 	# @info "here"
 	# @show findall(!iszero, vec(negative_roi_bool))
-
+	@show sum(findall(!iszero, vec(negative_roi_bool)))
 	if sum(findall(!iszero, vec(negative_roi_bool))) > 0 && (positive_count > 0)
 		negative_indices = findall(!iszero, negative_roi_bool)
 		ROI_POSITIVE_RATIO = 0.33f0
 		r = 1.0f0 / ROI_POSITIVE_RATIO
-		negative_count = floor(Integer, (r - 1) * positive_count)
+		negative_count = min(length(negative_indices), floor(Integer, (r - 1) * positive_count))
 		rand_idx = shuffle(1:size(negative_indices, 1))
 		rand_idx = rand_idx[1:negative_count]
 		negative_indices = negative_indices[rand_idx]
 		negative_count = size(negative_indices, ndims(negative_indices))
 		# @show size(proposals)
 		negative_indices = map(x -> x.I[1], negative_indices)
-		negative_rois = proposals[negative_indices, :]
+		negative_rois = @view proposals[negative_indices, :]
 		# @show size(negative_rois)
+		# return negative_rois	
 	else
 		negative_count = 0
 	end
-	# @show positive_count, negative_count
+	@show positive_count, negative_count
 	# error()
 	if positive_count > 0 && negative_count > 0
+		@info "my counts are +ve"
+		# return tboxes, positive_rois, negative_rois
 		@show size(positive_rois)
 		@show size(negative_rois)
 		rois = vcat(positive_rois, negative_rois)
-		zs = zeros(Int32, negative_count)
+		# return rois, deltas, masks
+		zs = zeros(Float32, negative_count)
 		roi_gt_class_ids = vcat(roi_gt_class_ids, zs)
-		zs = zeros(Float32, negative_count, 4)
+		zs = zeros(Float32, negative_count, 4) |> gpu
 		deltas = vcat(deltas, zs)
+		# return masks, deltas
 		@show typeof(deltas)
-		zs = zeros(Float32, MASK_SHAPE..., negative_count)
+		zs = zeros(Float32, MASK_SHAPE..., negative_count) |> gpu
 		@show size(masks)
 		@show size(zs)
 		masks = cat(masks, zs, dims = 3)
+		# return tboxes, masks
 	elseif positive_count > 0
 		rois = positive_rois
 	elseif negative_count > 0
 		rois = negative_rois
-		zs = zeros(Float32, negative_count)
+		zs = zeros(Float32, negative_count) |> gpu
 		roi_gt_class_ids = zs
-		zs = zeros(Float32, negative_count, 4)
+		zs = zeros(Float32, negative_count, 4) |> gpu
 		deltas = zs
-		zs = zeros(Float32, MASK_SHAPE..., negative_count)
+		zs = zeros(Float32, MASK_SHAPE..., negative_count) |> gpu
+		@show "making everything bad again"
 		masks = zs
 	else
-		rois = Float32[]
-		roi_gt_class_ids = Float32[]
-		deltas = Float32[]
-		masks = Float32[]
+		rois = Float32[] |> gpu
+		roi_gt_class_ids = Float32[] |> gpu
+		deltas = Float32[] |> gpu
+		masks = Float32[] |> gpu
 	end
 
+	@info "returning detection_target_layer"
 	rois, roi_gt_class_ids, deltas, masks
 end
 
@@ -881,6 +972,7 @@ function refine_detections(rois, probs, deltas, window, config = nothing)
 	# global gwindow = window
 	@show "in refine"
 	@show size(probs)
+	# gradient dropped here ?
 	_, class_ids = findmax(Tracker.data(probs), dims = 1)
 	@show size(deltas)
 	@show size(probs)
@@ -907,7 +999,7 @@ function refine_detections(rois, probs, deltas, window, config = nothing)
 	# global gidx = idx
 	# global gdeltas = deltas
 	# deltas_specific = deltas[class_ids,:,idx]
-	std_dev = [0.1 0.1 0.2 0.2]
+	std_dev = [0.1 0.1 0.2 0.2] |> gpu
 	@show "guess what"
 	# deltas_specific .* std_dev
 	deltas_specific = []
@@ -921,11 +1013,11 @@ function refine_detections(rois, probs, deltas, window, config = nothing)
 	refined_rois = apply_box_deltas(transpose(rois), transpose(deltas_specific) .* std_dev)
 	@warn "applied deltas"
 	height, width = 1024, 1024
-	scale = [height width height width]
+	scale = [height width height width] |> gpu
 	refined_rois = refined_rois .* scale
 	refined_rois = clip_to_window2(window, refined_rois)
 	@show typeof(refined_rois)
-	refined_rois = round.(Integer, refined_rois)
+	refined_rois = round.(refined_rois)
 	# @show refined_rois
 
 
@@ -934,7 +1026,8 @@ function refine_detections(rois, probs, deltas, window, config = nothing)
 	DETECTION_MIN_CONFIDENCE = .5f0
 	@show minimum(class_scores), mean(class_scores), maximum(class_scores)
 	@show sum(class_scores .> DETECTION_MIN_CONFIDENCE)
-	keep_bool = keep_bool .& (class_scores .>= DETECTION_MIN_CONFIDENCE)
+	cs = copy(class_scores) |> cpu
+	keep_bool = keep_bool .& (cs .>= DETECTION_MIN_CONFIDENCE)
 	# @show sum(keep_bool), size(keep_bool)
 	keep = findall(!iszero, keep_bool)
 	@show keep
@@ -950,8 +1043,10 @@ function refine_detections(rois, probs, deltas, window, config = nothing)
 		ixs = findall(pre_nms_class_ids .== class_id)
 
 		ix_rois = pre_nms_rois[ixs, :]
+		@show typeof(ix_rois)
 		ix_scores = pre_nms_scores[ixs]
-		ix_scores, order = sort(ix_scores.data, rev = true), sortperm(ix_scores, rev = true)
+		order = sortperm(ix_scores, rev = true)
+		ix_scores = ix_scores[order]
 		ix_rois = ix_rois[order, :]
 		# @show ix_rois
 		DETECTION_NMS_THRESHOLD = 0.3f0
@@ -976,11 +1071,11 @@ function refine_detections(rois, probs, deltas, window, config = nothing)
     @show size(class_ids)
     @show size(class_scores)
 
-    global grefined_rois = refined_rois
-    global gclass_ids = class_ids
-    global gclass_scores = class_scores
-    global gkeep = keep
-    hcat(refined_rois[keep, :] .* 1.0f0, class_ids[keep] .* 1.0f0, class_scores[keep])
+    # global grefined_rois = refined_rois
+    # global gclass_ids = class_ids
+    # global gclass_scores = class_scores
+    # global gkeep = keep
+    hcat(refined_rois[keep, :] .* 1.0f0, cu(class_ids[keep]) .* 1.0f0, class_scores[keep])
 
 end
 
@@ -998,7 +1093,7 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
 	RPN_TRAIN_ANCHORS_PER_IMAGE = 256
 	RPN_BBOX_STD_DEV = [0.1f0, 0.1f0, 0.2f0, 0.2f0]
 	rpn_match = zeros(Integer, size(anchors, 1))
-	rpn_bbox = zeros(Float32, RPN_TRAIN_ANCHORS_PER_IMAGE, 4)
+	rpn_bbox = zeros(Float32, RPN_TRAIN_ANCHORS_PER_IMAGE, 4) |> gpu
 
 	crowd_ix = findall(x -> x < 0, gt_class_ids)
 	# crowd_ix = gt_class_ids .< 0
@@ -1009,13 +1104,14 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
 		gt_boxes = gt_boxes[non_crowd_ix, :]
 		crowd_overlaps = compute_overlaps(anchors, crowd_boxes)
 		crowd_iou_max = maximum(crowd_overlaps, dims = 2)
-        no_crowd_bool = crowd_iou_max .< 0.001f0
+        no_crowd_bool = findall(!iszero, crowd_iou_max .< 0.001f0)
     else
     	no_crowd_bool = trues(size(anchors, 1))
     end
 
     overlaps = compute_overlaps(anchors, gt_boxes)
     @show maximum(overlaps)
+    @show size(overlaps)
 
     anchor_iou_argmax = argmax(overlaps, dims=2)
     @warn size(anchor_iou_argmax)
@@ -1079,14 +1175,14 @@ function build_rpn_targets(image_shape, anchors, gt_class_ids,
         a_center_x = a[2] + (0.5f0 * a_w)
 
         # Compute the bbox refinement that the RPN should predict.
-        rpn_bbox[ix, :] = [
+        rpn_bbox[ix, :] = gpu([
             (gt_center_y - a_center_y) / a_h,
             (gt_center_x - a_center_x) / a_w,
             log(gt_h / a_h), # remove abs - only for debugging
             log(gt_w / a_w),
-        ]
+        ] ./ RPN_BBOX_STD_DEV)
         # Normalize
-        rpn_bbox[ix, :] .= rpn_bbox[ix, :] ./ RPN_BBOX_STD_DEV
+        # rpn_bbox[ix, :] .= rpn_bbox[ix, :] ./ RPN_BBOX_STD_DEV
         ix += 1
     end
     rpn_match, rpn_bbox
@@ -1094,16 +1190,15 @@ end
 
 # Loss Functions
 
-function compute_rpn_class_loss(rpn_match, rpn_class_logits)
+function compute_rpn_class_loss(rpn_match, rpn_class_logits; labels = 1:80)
 	anchor_class = Int.(rpn_match .== 1)
 	indices = findall(!iszero, rpn_match .!= 0)
 	
 	rpn_class_logits = rpn_class_logits[:, indices, :]
 	rpn_class_logits = dropdims(rpn_class_logits, dims = ndims(rpn_class_logits))
-	# @show size(rpn_class_logits)
 	anchor_class = anchor_class[indices]
-	anchor_class = transpose(Flux.onehotbatch(1:maximum(unique(anchor_class)), anchor_class))
-
+        
+	anchor_class = Flux.onehotbatch(anchor_class, 0:1) |> gpu
 	Flux.logitcrossentropy(rpn_class_logits, anchor_class)
 
 end
@@ -1129,9 +1224,10 @@ function compute_rpn_bbox_loss(target_bbox, rpn_match, rpn_bbox)
 	mean(smooth_l1_loss.(target_bbox, rpn_bbox))
 end
 
-function compute_mrcnn_class_loss(target_class_ids, pred_class_logits)
+function compute_mrcnn_class_loss(target_class_ids, pred_class_logits; labels = 0:80)
 	if length(target_class_ids) > 0
-		y = Flux.onehotbatch(target_class_ids, 0:80)
+		target_class_ids = Int.(target_class_ids)
+		y = Flux.onehotbatch(target_class_ids, labels) |> gpu
 		return Flux.logitcrossentropy(pred_class_logits, y)
 	else
 		return param(0.0f0)
@@ -1171,8 +1267,10 @@ function compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 			push!(bb, a)
 		end
 		y_pred = cat(bb..., dims = 3)
+		# y_pred = cpu(y_pred)
+		# y_true = cpu(y_true)
 
-		mean(Flux.binarycrossentropy.(y_pred, y_true))
+		mean(bce(y_pred, y_true))
 	else
 		return param(0.0f0)
 	end
@@ -1183,6 +1281,7 @@ end
 
 function mold_image(image, config = Nothing)
 	MEAN_PIXEL = [123.7f0 / 255.0f0, 116.8f0 / 255.0f0, 103.9f0 / 255.0f0]
+	# MEAN_PIXEL = [123.7f0, 116.8f0, 103.9]
 	image[:,:,1] .-= MEAN_PIXEL[1]
 	image[:,:,2] .-= MEAN_PIXEL[2]
 	image[:,:,3] .-= MEAN_PIXEL[3]
@@ -1201,7 +1300,7 @@ parse_image_meta(image_meta) = image_meta
 """
 function mold_inputs(images)
 	IMAGE_MIN_DIM = 800
-	IMAGE_MAX_DIM = 1024
+	IMAGE_MAX_DIM = 1024 # 128
 	IMAGE_PADDING = true
 	NUM_CLASSES = 81
 	molded_images = []
@@ -1226,3 +1325,4 @@ function mold_inputs(images)
 	image_metas = reduce(hcat, image_metas)
 	molded_images, image_metas, windows
 end
+

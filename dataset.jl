@@ -1,5 +1,5 @@
 using JSON, StatsBase
-using Images # , Luxor
+using Images, Luxor
 using Images.ImageTransformations
 using Interpolations
 # using ImageView
@@ -25,7 +25,7 @@ end
 # COCO_train2014_000000581882.jpg
 # 480023
 
-coco = coco_annotations()
+# coco = coco_annotations()
 
 function get_class_ids()
   class_ids = Integer[]
@@ -59,8 +59,8 @@ end
 function sample_coco(cid, images, classes;
                     base_name = "COCO_train2014_000000", masks = Dict())
 
-  img_class = sample(classes)
-  img_id = sample(cid[img_class])
+  img_class = 4 # sample(classes) # 4
+  img_id = 275544 # sample(cid[img_class]) # 275544
   img = images[img_id]
   # segmentation = img["segmentation"]
   # rpn_bbox = transpose(img["bbox"])
@@ -141,7 +141,8 @@ function make_masks(img::Dict, image_size::Tuple, image_name; masks = Dict())
   class_ids = []
   for i in img["vals"]
     bb = transpose(i["bbox"])
-    mask, masks = make_masks(i["segmentation"], image_size, image_name; masks = masks)
+    bb = [bb[1] bb[2] bb[1] + bb[3] bb[2] + bb[4]]
+    mask, masks = make_masks(i["segmentation"], image_size, image_name)
     push!(bboxes, bb)
     push!(img_masks, mask)
     if i["iscrowd"] == 0
@@ -211,3 +212,4 @@ function load_image_gt(cid::Dict, images::Dict, classes; augment = true, use_min
 
   resized_img, image_meta, class_ids, bbox, mask
 end
+

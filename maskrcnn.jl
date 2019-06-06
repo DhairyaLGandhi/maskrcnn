@@ -17,14 +17,15 @@ end
 function ConvBlock(kernel, chs; stride = (1, 1), pad = (0, 0))
   # @show stride
   stride = stride
-  ConvBlock(Conv(kernel, chs, stride = stride, pad = pad),
+  ConvBlock(Conv(kernel, chs, stride = stride, pad = pad) |> gpu,
 
-  BatchNorm(chs[2]),
+  BatchNorm(chs[2]) |> gpu,
 
   x -> relu.(x))
 end
 
 (c::ConvBlock)(x) = c.nonlinearity(c.norm(c.convlayer(x)))
+# (c::ConvBlock)(x) = c.norm(c.convlayer(x))
 
 """
 For Resnet (do it anyway), identity shortcut.
@@ -40,7 +41,7 @@ function IDBlock(kernel, filters)
     path_1 = Chain(ConvBlock((1,1), 3=>filters[1]),
                 ConvBlock(kernel, filters[1]=>filters[2]),
                 Conv((1,1), filters[2]=>filters[3]),
-                BatchNorm(filters[3]))
+                BatchNorm(filters[3])) |> gpu
 
     IDBlock(path_1)
 end
@@ -64,10 +65,10 @@ function Conv_Block(kernel, filters)
     path_1 = Chain(ConvBlock((1,1), 3=>filters[1]),
 		ConvBlock(kernel, filters[1]=>filters[2]),
 		Conv((1,1), filters[2]=>filters[3]),
-		BatchNorm(filters[3]))
+		BatchNorm(filters[3])) |> gpu
 
     shortcut = Chain(Conv((1,1), filters[2]=>filters[3]),
-                BatchNorm(filters[3]))
+                BatchNorm(filters[3])) |> gpu
 
     Conv_Block(path_1, shortcut)
 end
@@ -141,18 +142,18 @@ end
 
 function FPN(out_channels, ps...)
   cs = ps[1:5]
-  P6 = x -> maxpool(x, (1,1), stride = (2,2))
-  P5_conv1 = Conv((1,1), 2048=>out_channels)
-  P5_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1))
+  P6 = MaxPool((1,1), stride = (2,2)) |> gpu
+  P5_conv1 = Conv((1,1), 2048=>out_channels) |> gpu
+  P5_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1)) |> gpu
 
-  P4_conv1 = Conv((1,1), 1024=>out_channels)
-  P4_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1))
+  P4_conv1 = Conv((1,1), 1024=>out_channels) |> gpu
+  P4_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1)) |> gpu
 
-  P3_conv1 = Conv((1,1), 512=>out_channels)
-  P3_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1))
+  P3_conv1 = Conv((1,1), 512=>out_channels) |> gpu
+  P3_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1)) |> gpu
 
-  P2_conv1 = Conv((1,1), 256=>out_channels)
-  P2_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1))
+  P2_conv1 = Conv((1,1), 256=>out_channels) |> gpu
+  P2_conv2 = Conv((3,3), out_channels=>out_channels, pad = (1,1)) |> gpu
 
   FPN(cs..., P6, P5_conv1,
       P5_conv2,
@@ -175,9 +176,9 @@ function (c::FPN)(x)
   @show size(c5_out)
   p5_out = c.P5_conv1(c5_out)
 
-  p4_out = c.P4_conv1(c4_out) + upsample(p5_out, (2,2,1,1))
-  p3_out = c.P3_conv1(c3_out) + upsample(p4_out, (2,2,1,1))
-  p2_out = c.P2_conv1(c2_out) + upsample(p3_out, (2,2,1,1))
+  p4_out = c.P4_conv1(c4_out) + gpu(upsample(cpu(p5_out), (2,2,1,1)))
+  p3_out = c.P3_conv1(c3_out) + gpu(upsample(cpu(p4_out), (2,2,1,1)))
+  p2_out = c.P2_conv1(c2_out) + gpu(upsample(cpu(p3_out), (2,2,1,1)))
 
   p5_out = c.P5_conv2(p5_out)
   p4_out = c.P4_conv2(p4_out)
@@ -201,12 +202,11 @@ end
 
 function Mask(depth, pool_size, image_shape, num_classes)
   chain = Chain(ConvBlock((3,3), 256=>256, pad = (3,3)),
+                ConvBlock((3,3), 256=>256, pad = (1,1)),
                 ConvBlock((3,3), 256=>256),
-                ConvBlock((3,3), 256=>256),
-                ConvTranspose((2,2), 256=>256, stride = (2,2)),
-                x -> relu.(x),
-                Conv((1,1), 256=>num_classes),
-                x -> σ.(x))
+		ConvBlock((3,3), 256=>256),
+                ConvTranspose((2,2), 256=>256, relu, stride = (2,2)),
+                Conv((1,1), 256=>num_classes, σ)) |> gpu
 
   Mask(depth, pool_size, image_shape, num_classes, chain)
 end
@@ -214,6 +214,9 @@ end
 function (c::Mask)(x, rois)
   op = pyramid_roi_align((rois, x...), c.pool_size, c.image_shape)
   @show size(op)
+  # @show typeof(op)
+  op = gpu(op)
+  # @show typeof(op)
   op = c.chain(op)
   op
 end
@@ -232,9 +235,9 @@ end
 
 function Classifier(depth, pool_size, image_shape, num_classes)
   chain = Chain(ConvBlock((pool_size, pool_size), depth=>1024),
-              ConvBlock((1,1), 1024=>1024))
-  linear_class = Dense(1024, num_classes)
-  linear_bbox = Dense(1024, 4*num_classes)
+              ConvBlock((1,1), 1024=>1024)) |> gpu
+  linear_class = Dense(1024, num_classes) |> gpu
+  linear_bbox = Dense(1024, 4*num_classes) |> gpu
 
   Classifier(depth, 
             pool_size,
@@ -250,6 +253,9 @@ function (c::Classifier)(x, rois)
   x = pyramid_roi_align((rois, x...), c.pool_size, c.image_shape)
   @show "passed pyramide"
   @show size(x)
+  # @show typeof(collect(x))
+  x = gpu(x)
+  @show typeof(x)
   x = c.chain(x)
   @show size(x)
   x = dropdims(x, dims = (1,2))
@@ -276,9 +282,9 @@ end
 @treelike RPN
 
 function RPN(anchors_per_location::Int, anchor_stride, depth)
-  conv_shared = Conv((3,3), depth=>512, stride = anchor_stride, pad = (1,1))
-  conv_class = Conv((1,1), 512=>2*anchors_per_location)
-  conv_bbox = Conv((1,1), 512=>4*anchors_per_location)
+  conv_shared = Conv((3,3), depth=>512, stride = anchor_stride, pad = (1,1)) |> gpu
+  conv_class = Conv((1,1), 512=>2*anchors_per_location) |> gpu
+  conv_bbox = Conv((1,1), 512=>4*anchors_per_location) |> gpu
   RPN(
     # anchors_per_location,
     # anchor_stride,
@@ -289,9 +295,10 @@ function RPN(anchors_per_location::Int, anchor_stride, depth)
 end
 
 function (c::RPN)(x)
-  x = relu.(c.conv_shared(x))
+  x = c.conv_shared(x)
 
   rpn_class_logits = c.conv_class(x)
+  @show size(rpn_class_logits)
   rpn_class_logits = permutedims(rpn_class_logits, (3,4,2,1)) |> 
                     x -> reshape(x, (2,:, size(rpn_class_logits, ndims(rpn_class_logits))))
   @show maximum(rpn_class_logits)
@@ -302,6 +309,7 @@ function (c::RPN)(x)
     y = selectdim(rpn_class_logits, ndims(rpn_class_logits), i)
     push!(ss, softmax(y))
   end
+  @show "no loop"
   rpn_probs = cat(ss..., dims = 3)
   @show maximum(rpn_probs)
   @warn "rpn_probs"
@@ -329,7 +337,7 @@ function BottleNeck(inplanes::Int, planes::Int; stride = (1,1), downsample=nothi
                                 pad = (0,0)),
                 ConvBlock((3,3), planes=>planes, pad = (1,1)),
                 Conv((1,1), planes=>4*planes),
-                BatchNorm(4*planes))
+                BatchNorm(4*planes)) |> gpu
   if downsample isa Nothing
     downsample = identity
   end
@@ -367,7 +375,7 @@ function make_layer(block, planes, blocks, inplanes; stride = (1,1))
   downsample = nothing  
   if any([stride != (1,1), inplanes != planes*4])
     downsample = Chain(Conv((1,1), inplanes => 4*planes, stride = stride),
-                      BatchNorm(4*planes))
+                      BatchNorm(4*planes)) |> gpu
   end
 
   layers = []
@@ -378,7 +386,7 @@ function make_layer(block, planes, blocks, inplanes; stride = (1,1))
     push!(layers, block(inplanes, planes))
   end
 
-  Chain(layers...)
+  Chain(layers...) |> gpu
 end
 
 function ResNet(architecture::String; stage5::Bool = false)
@@ -390,7 +398,8 @@ function ResNet(architecture::String; stage5::Bool = false)
   end
 
   C1 = Chain(ConvBlock((7,7), 3=>64, stride = (2,2), pad = (4 ,4)),
-            x -> maxpool(x, (3,3), stride = (2,2)))
+            MaxPool((3,3), stride = (2,2))) |> gpu
+
 
   C2 = make_layer(BottleNeck, 64, layers[1], inplanes)
   C3 = make_layer(BottleNeck, 128, layers[2], 256, stride = (2,2))
@@ -483,10 +492,15 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   #   @show mean(r)
   # end
 
-  layer_outputs = []
-  for p in rpn_feature_maps
-      push!(layer_outputs, c.rpn(p))
-  end
+  # layer_outputs = []
+  # for p in rpn_feature_maps
+  #     push!(layer_outputs, c.rpn(p))
+  # end
+
+  c.rpn = cpu(c.rpn)
+  rpn_feature_maps = cpu.(rpn_feature_maps)
+  layer_outputs = map(c.rpn, rpn_feature_maps)
+  @show "rpn out"
   # for lo in layer_outputs
   #   for m in lo
   #     @show size(m)
@@ -496,10 +510,12 @@ function predict(c::MaskRCNN, molded_images, image_metas,
 
   ops = zip(layer_outputs...)
   ops2 = []
-  for o in ops
-    push!(ops2, reduce(hcat, o))
-  end
-
+  # for o in ops
+  #   push!(ops2, reduce(hcat, o))
+  # end
+  ops2 = map(x -> reduce(hcat, x), ops)
+  @show "reduction done"
+  # ops2 = gpu.(ops2)
   rpn_class_logits, rpn_class, rpn_bbox = ops2
   # @show maximum(rpn_class_logits)
   # @show mean(rpn_class_logits)
@@ -522,15 +538,16 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   # global grpn_class = rpn_class
   # global grpn_bbox = rpn_bbox
   for i in 1:size(rpn_class, ndims(rpn_class))
-    rpn_class_slice = selectdim(rpn_class, ndims(rpn_class), i)    
-    rpn_bbox_slice = selectdim(rpn_bbox, ndims(rpn_bbox), i)    
+    rpn_class_slice = @view rpn_class[:, :, i]   
+    rpn_bbox_slice = @view rpn_bbox[:, :, i]    
     # @show size(rpn_class_slice'), size(rpn_bbox_slice')
     # @show maximum(rpn_bbox_slice)
     # @show maximum(rpn_class_slice)
+    @info "At proposal # $i"
     rpn_rois = proposal_layer([rpn_class_slice', rpn_bbox_slice'],
                 proposal_count,
                 RPN_NMS_THRESHOLD,
-                c.anchors)
+                cpu(c.anchors))
     @show size(rpn_rois)
     push!(rpn_rois_arr, rpn_rois)
   end
@@ -542,6 +559,7 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   # all the ROIs.
   rpn_rois = reduce(vcat, rpn_rois_arr)  # remove
   @show typeof(rpn_rois)
+  rpn_rois = gpu(rpn_rois)
   # @show rpn_rois
   # error()
   # return mrcnn_feature_maps, rpn_rois_arr
@@ -574,7 +592,7 @@ function predict(c::MaskRCNN, molded_images, image_metas,
 
     IMAGE_SHAPE = (1024, 1024, 3)
     h, w = IMAGE_SHAPE[1:2]
-    scale = [h w h w]
+    scale = [h w h w] |> gpu
 
     gt_boxes = gt_boxes ./ scale
 
@@ -660,3 +678,4 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
 end
 
 include("utils.jl")
+
