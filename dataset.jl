@@ -25,7 +25,7 @@ end
 # COCO_train2014_000000581882.jpg
 # 480023
 
-# coco = coco_annotations()
+coco = coco_annotations()
 
 function get_class_ids()
   class_ids = Integer[]
