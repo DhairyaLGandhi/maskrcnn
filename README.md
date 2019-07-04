@@ -5,8 +5,11 @@ DONE:
  - data generator
  - coco pipelining
  - backprop
-
-TODO:
  - fix incorrect gradients
  - check where gradients are dropped
+
+TODO:
  - fix infs in log (`box_refinement`)
+ - Documentation
+ - clean up the mess
+ - GPU NMS
