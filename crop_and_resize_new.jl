@@ -24,6 +24,7 @@ function crop_and_resize(image, boxes, box_ind;
     image_data = image
     @assert crop_height > 1
     @assert crop_width > 1
+    @show size(boxes_data)
     for (b, box) in enumerate(eachcol(boxes_data))
         y1, x1, y2, x2 = box
 
@@ -107,7 +108,9 @@ function ∇crop_and_resize!(grads, boxes, boxes_index, grads_image; kw...)
 
 	@assert crop_height > 1
     @assert crop_width > 1
+	@show size(boxes_data)
 	for (b, box) in enumerate(eachcol(boxes_data))
+		@show box
 		y1, x1, y2, x2 = box
 
 		b_in = Int.(Tracker.data(boxes_index[b]))
@@ -197,9 +200,9 @@ end
                     kw...)
 
     y, Δ -> (∇crop_and_resize!(Δ,
-                    boxes,
+                    transpose(boxes),
                     box_ind,
-                    image; kw...), boxes, 0.f0)
+                    image; kw...), zero(boxes), 0.f0)
 end
 
 

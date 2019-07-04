@@ -235,11 +235,19 @@ function apply_box_deltas(boxes, deltas)
   
 end
 
+# function clip_boxes(boxes, window)
+#   y1 = max.(min.(boxes[:,1], window[:,3]), window[:,1])
+#   x1 = max.(min.(boxes[:,2], window[:,4]), window[:,2])
+#   y2 = max.(min.(boxes[:,3], window[:,3]), window[:,1])
+#   x2 = max.(min.(boxes[:,4], window[:,4]), window[:,2])
+#   hcat(y1,x1,y2,x2)
+# end
+
 function clip_boxes(boxes, window)
-  y1 = max.(min.(boxes[:,1], window[:,3]), window[:,1])
-  x1 = max.(min.(boxes[:,2], window[:,4]), window[:,2])
-  y2 = max.(min.(boxes[:,3], window[:,3]), window[:,1])
-  x2 = max.(min.(boxes[:,4], window[:,4]), window[:,2])
+  y1 = clamp.(boxes[:,1], window[1], window[3])
+  x1 = clamp.(boxes[:,2], window[2], window[4])
+  y2 = clamp.(boxes[:,3], window[1], window[3])
+  x2 = clamp.(boxes[:,4], window[2], window[4])
   hcat(y1,x1,y2,x2)
 end
 
@@ -299,9 +307,11 @@ function generate_anchors(scales, ratios, shape, feature_stride, anchor_stride)
    box_centers_y = repeat(shifts_y[1:ly], inner = (ly, lh)) # |> x -> reshape(x, length(widths), length(shifts_x))
 
    box_centers = Flux.stack([box_centers_y, box_centers_x], 3)
+   global gbc = box_centers
    box_centers = permutedims(box_centers, (2,1,3)) |> x -> reshape(x, :, 2)
 
    box_sizes = Flux.stack([box_heights, box_widths], 3)
+   global gbs = box_sizes
    box_sizes = permutedims(box_sizes, (2,1,3)) |> x -> reshape(x, :, 2)
 
    cat(box_centers .- (0.5f0 .* box_sizes), box_centers .+ (0.5f0 .* box_sizes), dims = 2)
@@ -333,6 +343,8 @@ function generate_anchors2(scales, ratios, shape, feature_stride, anchor_stride)
 	
 	box_heights = repeat(h', lsy)
 	box_centers_y = repeat(shifts_y[:,1], inner = (size(shifts_y, 1),lh))
+
+	box_centers = Flux.stack([box_centers_y, box_centers_x], 3)
 
 	Flux.stack([box_centers_y, box_centers_x], 3)
 end
@@ -737,7 +749,7 @@ function detection_target_layer(proposals, gt_class_ids, gt_boxes, gt_masks, con
     @show "after first op"
     roi_iou_max = maximum(overlaps, dims = 2)
     # return overlaps
-    positive_roi_bool = roi_iou_max .>= 0.5f0
+    positive_roi_bool = roi_iou_max .>= 0.3f0
     # return roi_iou_max
 
     if sum(positive_roi_bool) > 0
@@ -1234,8 +1246,9 @@ function compute_mrcnn_class_loss(target_class_ids, pred_class_logits; labels = 
 	end
 end
 
-function compute_mrcnn_bbox_loss(target_deltas, target_class_ids, pred_bbox)
+function compute_mrcnn_bbox_loss(target_deltas, target_class_ids, pred_bbox; labels = 0:80)
 	if length(target_class_ids) > 0
+		target_class_ids = map(y -> findall(x -> x == y, labels)[1], target_class_ids)
 		positive_roi_ix = findall(target_class_ids .> 0)
 
 		positive_roi_class_ids = target_class_ids[positive_roi_ix]
@@ -1255,8 +1268,9 @@ function compute_mrcnn_bbox_loss(target_deltas, target_class_ids, pred_bbox)
 	end
 end
 
-function compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
+function compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask; labels = 0:80)
 	if length(target_class_ids) > 0
+		target_class_ids = map(y -> findall(x -> x == y, labels)[1], target_class_ids)
 		positive_ix = findall(target_class_ids .> 0.f0)
 		positive_class_ids = target_class_ids[positive_ix]
 

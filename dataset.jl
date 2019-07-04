@@ -213,3 +213,29 @@ function load_image_gt(cid::Dict, images::Dict, classes; augment = true, use_min
   resized_img, image_meta, class_ids, bbox, mask
 end
 
+
+function load_image_gt(image_name::String, segmentation::Array, classes::Array; use_mini_mask = true)
+  # mask_path = joinpath(masks_path, "mask_" * split(image_name, ".")[1] * ".png")
+
+  img_data = load(image_name)
+  i, masks = make_masks(segmentation, size(img_data)[1:2], image_name)
+
+  img_data = permutedims(channelview(img_data), (3,2,1))
+  resized_img, window, scale, padding = resize_image(img_data, 1024, 1024, true)
+  i = resize_mask(i, scale, padding)
+
+  bbox = extract_bboxes(i)
+
+  active_classes = zeros(length(classes))
+  active_classes .= 1
+
+  MINI_MASK_SHAPE = (56, 56)
+  if use_mini_mask
+    mask = minimise_mask(bbox, i, MINI_MASK_SHAPE)
+    # mask = minimise_mask(clamp.(round.(Int, rpn_bbox), 1, size(img_data, 2)), mask, MINI_MASK_SHAPE)
+  end
+
+  image_meta = compose_image_meta(667, size(img_data), window, active_classes)
+
+  resized_img, image_meta, classes, bbox, mask
+end

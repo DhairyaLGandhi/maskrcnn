@@ -1,0 +1,8 @@
+*.bson
+*.png
+*.pth
+*.ipynb
+*.jpg
+*.svg
+*.txt
+fire/
