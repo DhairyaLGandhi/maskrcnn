@@ -620,7 +620,7 @@ function predict(c::MaskRCNN, molded_images, image_metas,
                 gt_class_ids = nothing, gt_boxes = nothing,
                 gt_masks = nothing, mode = "inference")
 
-  p2_out, p3_out, p4_out, p5_out, p6_out = c.fpn(image);
+  p2_out, p3_out, p4_out, p5_out, p6_out = c.fpn(molded_images);
   rpn_feature_maps = [p2_out, p3_out, p4_out, p5_out, p6_out];
   mrcnn_feature_maps = [p2_out, p3_out, p4_out, p5_out];
   @show "got fpn"
@@ -744,6 +744,11 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
     # img_data, mask, img_class, rpn_bbox, masks = sample_coco(cid, images, classes, masks = masks)
     image, image_metas, gt_class_ids, gt_boxes, gt_masks = load_image_gt(cid, images, classes)
     # molded_image, image_metas, windows = mold_inputs((img_data,))
+
+    image = Float32.(reshape(image, (size(image)..., 1))) |> gpu;
+    gt_masks = gpu(gt_masks);
+    gt_boxes = gpu(gt_boxes);
+
     rpn_match, rpn_bbox = build_rpn_targets(size(image)[1:2], c.anchors, gt_class_ids, gt_boxes)
 
     rpn_class_logits, rpn_pred_bbox, target_class_ids,
@@ -755,6 +760,8 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
                               gt_boxes,
                               gt_masks,
                               "training")
+
+    target_class_ids = Int.(target_class_ids);
 
     # Oh God Why
     # l1, l2, l3 = compute_losses(rpn_class_logits, rpn_bbox, target_class_ids,
@@ -768,7 +775,7 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
 
     # loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
 
-    gs = Tracker.gradient(ps) do
+    # gs = Tracker.gradient(ps) do
       rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
       rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
       mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
@@ -776,7 +783,8 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
       mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 
       loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
-    end
+    # end
+    back!(loss)
 
     update!(opt, ps, gs)
   end
