@@ -2,9 +2,9 @@ using HDF5
 import Base.show_unquoted
 
 global arr = []
-global ks = readlines("maskrcnn_keys.txt");
+global ks = readlines("weights/maskrcnn_keys.txt");
 
-function load_weights(c::MaskRCNN, hdfile = "maskrcnn.h5")
+function load_weights(c::MaskRCNN, hdfile = "weights/maskrcnn.h5")
 	hd = h5open(hdfile, "r")
 	mnets = [:fpn, :rpn, :classifier, :mask]
 
