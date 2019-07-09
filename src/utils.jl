@@ -1066,6 +1066,12 @@ end
 
 # Loss Functions
 
+function bce(ŷ, y; ϵ=cu(fill(eps(first(ŷ)), size(ŷ)...)))
+    l1 = -y.*log.(ŷ .+ ϵ)
+    l2 = (1 .- y).*log.(1 .- ŷ .+ ϵ)
+    l1 .- l2
+end
+
 function compute_rpn_class_loss(rpn_match, rpn_class_logits; labels = 1:80)
 	anchor_class = Int.(rpn_match .== 1)
 	indices = findall(!iszero, rpn_match .!= 0)
