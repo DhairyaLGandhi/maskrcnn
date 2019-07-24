@@ -587,7 +587,6 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
 
       loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
     end
-    back!(loss)
 
     update!(opt, ps, gs)
   end
