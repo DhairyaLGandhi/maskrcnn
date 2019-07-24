@@ -1,4 +1,3 @@
-# using Flux, Flux.Tracker, Flux.Optimise
 using Base.Threads
 using BSON: @save, @load
 
@@ -6,7 +5,6 @@ function crop_and_resize(image, boxes, box_ind;
                         crop_height = 28, crop_width = 28,
 			extrapolation_value = 0.f0)
 
-    @show crop_height
     batch_size = size(image, 4)
     depth = size(image, 3)
     image_height = size(image, 2)
@@ -15,7 +13,6 @@ function crop_and_resize(image, boxes, box_ind;
     crop_height = round.(Int, crop_height)
     crop_width = round.(Int, crop_width)
 
-    # @show crop_width
     crops = similar(image, crop_height, crop_width, depth, num_boxes)
 
     boxes_data = boxes
@@ -24,12 +21,10 @@ function crop_and_resize(image, boxes, box_ind;
     image_data = image
     @assert crop_height > 1
     @assert crop_width > 1
-    @show size(boxes_data)
     for (b, box) in enumerate(eachcol(boxes_data))
         y1, x1, y2, x2 = box
 
         b_in = Int.(box_ind[b])
-        # @show b_in
         b_in in bs || error("Error: box index $(b_in), not in range of images [1,$(batch_size))")
 
         height_scale = (crop_height > 1) ? (y2 - y1) * (image_height - 1.0f0) / (crop_height - 1.0f0) : 0.0f0
@@ -70,18 +65,15 @@ function crop_and_resize(image, boxes, box_ind;
             top = @. top_left + (top_right - top_left) * x_lerp
             bottom = @. bottom_left + (bottom_right - bottom_left) * x_lerp
             val = @. top + (bottom - top) * y_lerp
-            # @show typeof(val)
             crops[y,x,:,b] .= val
         end
     end
-    @show size(crops)
     round.(crops)
 
 end
 
 
 function ∇crop_and_resize!(grads, boxes, boxes_index, grads_image; kw...)
-	@show "in  ∇crop_and_resize!"
 	batch_size = size(grads_image, ndims(grads_image))
 	depth = size(grads_image, 3)
 	image_height = size(grads_image, 2)
@@ -97,20 +89,16 @@ function ∇crop_and_resize!(grads, boxes, boxes_index, grads_image; kw...)
 	channel_elements = crop_height * crop_width
 	crop_elements = depth * channel_elements
 
-	# grads_image = Tracker.zero(grads_image)
 
 	grads_data = grads # Tracker.data(grads)
 	boxes_data = boxes # Tracker.data(boxes)
-	# boxes_data = boxes
 	boxes_index_data = boxes_index # Tracker.data(boxes_index)
 	grads_image_data = zero(grads_image)
 	bs = 1:batch_size
 
 	@assert crop_height > 1
     @assert crop_width > 1
-	@show size(boxes_data)
 	for (b, box) in enumerate(eachcol(boxes_data))
-		@show box
 		y1, x1, y2, x2 = box
 
 		b_in = Int.(Tracker.data(boxes_index[b]))
@@ -164,13 +152,7 @@ function ∇crop_and_resize!(grads, boxes, boxes_index, grads_image; kw...)
 			lx = copy(left_x_index) |> Tracker.data |> Int
 			rx = copy(right_x_index) |> Tracker.data |> Int
 
-			# top_y_index = Int.(Tracker.data(top_y_index))
-			# bottom_y_index = Int.(Tracker.data(bottom_y_index))
-			# left_x_index = Int.(Tracker.data(left_x_index))
-			# right_x_index = Int.(Tracker.data(right_x_index))
-
 			dtop = @. (1 - y_lerp) * grad_val
-			# @show (1.f0 .- x_lerp) .* dtop
 			p1 = Tracker.data((1.f0 .- x_lerp) .* dtop)
 			p2 = Tracker.data(x_lerp .* dtop)
 			grads_image_data[ty,lx,:,b_in] += p1 # (1.f0 .- x_lerp) .* dtop
@@ -183,8 +165,6 @@ function ∇crop_and_resize!(grads, boxes, boxes_index, grads_image; kw...)
 			grads_image_data[by, rx,:,b_in] += p4 # x_lerp .* dbottom
 		end
 	end
-	@show "done"
-	@show sum(grads_image_data)
 	grads_image_data
 end
 
@@ -193,7 +173,6 @@ end
 			box_ind::AbstractArray;
 			kw...)
 
-    @info "doing crop_and_resize backprop"
     y = crop_and_resize(Tracker.data(image),
                     Tracker.data(boxes),
                     Tracker.data(box_ind);

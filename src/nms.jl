@@ -7,10 +7,8 @@ function nms(boxes_with_scores, threshold)
   x2 = boxes[:,4]
   areas = (x2 .- x1 .+ 1) .* (y2 .- y1 .+ 1) # + 1
   idxs = sortperm(scores, rev = true)
-  # @show idxs[1:10]
 
   # sort boxes based on scores
-  # @show scores[1:10], scores[end-10:end]
   boxes = boxes[idxs,:]
   pick = Int[]
   while length(idxs) > 0
@@ -25,20 +23,12 @@ function nms(boxes_with_scores, threshold)
 
     w = max.(0.0f0, xx2 .- xx1 .+ 1)
     h = max.(0.0f0, yy2 .- yy1 .+ 1)
-    # ff = findall(isnan, w)
-    # if length(ff) > 0
-    #   @show "nans in w"
-    #   @show "!!!!!!!!!"
-    # end
     overlap = (w .* h) ./ areas[idxs[1:las]]
-    # @show overlap[1:10]
     inds = findall(x -> x > threshold, overlap)
     deleteat!(idxs, unique([inds..., las]))
   end
-  # boxes[pick, :]
   bs = boxes[pick, 1:4]
   as = (bs[:,3] .- bs[:,1] .+ 1) .* (bs[:,4] .- bs[:,2] .+ 1)
-  @show as
   pick
 end
 
@@ -58,14 +48,12 @@ function nms2(boxes_with_scores, threshold)
     # breaks tracking 
     s = copy(scores) |> cpu
     order = sortperm(s, rev = true)
-    @show "after order"
 
     keep = 1:size(boxes_with_scores, 1) |> collect # need to setindex in keep
     num_out = 0
 
     supp = _nms!(keep, num_out, boxes_with_scores, order, areas, threshold)
 
-    # keep[1:num_out]
     supp
 end
 
@@ -74,7 +62,6 @@ function _nms!(keep_out, num_out, boxes, order, areas, nms_overlap_thresh)
   boxes_dim = size(boxes, 2)
 
   keep_out_flat = keep_out
-  @show typeof(boxes)
   boxes_flat = boxes
   order_flat = order
   areas_flat = areas
@@ -95,18 +82,6 @@ function _nms!(keep_out, num_out, boxes, order, areas, nms_overlap_thresh)
 
     iarea = areas_flat[i]
     
-    # _j = collect((_i+1):boxes_num)
-    # j = order_flat[_j]
-    # xx1 = max.(ix1, boxes_flat[j,1])
-    # yy1 = max.(iy1, boxes_flat[j,2])
-    # xx2 = min.(ix2, boxes_flat[j,3])
-    # yy2 = min.(iy2, boxes_flat[j,4])
-    # w = max.(0.0f0, xx2 .- xx1 .+ 1.f0)
-    # h = max(0.0f0, yy2 .- yy1 .+ 1.f0)
-    # inter = w .* h
-    # ovr = inter ./ (iarea .+ areas_flat[j] .- inter)
-    # iis = ovr .>= nms_overlap_thresh
-    # suppressed
     for _j = (_i+1):boxes_num
       j = order_flat[_j]
       suppressed[j] == 1 && continue
@@ -120,7 +95,6 @@ function _nms!(keep_out, num_out, boxes, order, areas, nms_overlap_thresh)
 
             inter = w * h
             ovr = inter / (iarea + areas_flat[j] - inter)
-            # @show ovr
             if ovr >= nms_overlap_thresh
               suppressed[j] = 1
             end
@@ -159,8 +133,6 @@ function nms_kernel!(block_boxes, n_boxes,nms_overlap_thresh, dev_boxes, dev_mas
     row_size = min(n_boxes - row_start * threadsPerBlock, threadsPerBlock)
     col_size = min(n_boxes - col_start * threadsPerBlock, threadsPerBlock)
 
-    # block_boxes = cu(zeros(n_boxes, 5))
-
     if threadIdx().x < col_size
         block_boxes[(threadIdx().x-1) * 5 + 1-1] =
             dev_boxes[threadsPerBlock * col_start + threadIdx().x + 0]
@@ -175,7 +147,6 @@ function nms_kernel!(block_boxes, n_boxes,nms_overlap_thresh, dev_boxes, dev_mas
     end
 
     sync_threads()
-    # return nothing
     if threadIdx().x < row_size
         cur_box_idx = threadsPerBlock * row_start + threadIdx().x
         cur_box = dev_boxes[cur_box_idx, :]
@@ -240,16 +211,4 @@ function cuda_nms(dets, thresh)
     keep_flat = keep
     num_to_keep = 0
 
-    # for i in 1:boxes_num
-    #     nblock = i / threadsPerBlock
-    #     inblock = i % threadsPerBlock
-
-    #     if (!(remv_cpu_flat[nblock] & (1ULL << inblock))) {
-    #         keep_flat[num_to_keep++] = i;
-    #         p = mask_cpu_flat[ + i * col_blocks;
-    #         for j = nblock:col_blocks
-    #             remv_cpu_flat[j] |= p[j];
-    #         end
-    #     end
-    # end
 end
