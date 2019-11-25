@@ -59,6 +59,14 @@ function trial()
     return HTTP.Response(200)
   end
 
+  # Ignore non-collaborators
+  repo = event.repository
+  user = event.payload["comment"]["user"]["login"]
+  iscollab = GitHub.iscollaborator(repo, user; auth = myauth)
+  if !iscollab
+    return HTTP.Response(200)
+  end
+
   if isPR(event.payload["issue"])
     phrase = event.payload["comment"]["body"]
     phrase = match(trigger, phrase)
