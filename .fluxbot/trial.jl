@@ -11,11 +11,17 @@ function trial()
   @show keys(f)
   event = GitHub.event_from_payload!("issue_comment", f)
   @show event
-  comment_kind = :issue
-  reply_to = event.payload["issue"]["number"]
-  GitHub.create_comment(event.repository, reply_to, comment_kind;
-                        auth = myauth,
-                        params = Dict("body" => "Have a reply!"))
+
+  if event.payload["action"] == "deleted"
+    return HTTP.Response(200)
+  end
+
+  @show event.payload["comment"]["body"]
+  # comment_kind = :issue
+  # reply_to = event.payload["issue"]["number"]
+  # GitHub.create_comment(event.repository, reply_to, comment_kind;
+  #                       auth = myauth,
+  #                       params = Dict("body" => "Have a reply!"))
 end
 
 trial()
