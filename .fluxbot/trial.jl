@@ -59,12 +59,13 @@ Needed to ensure we get the correct artifacts out, since GitLab only serves the
 most recent artifacts through its API.
 """
 function no_existing_pipelines()
-  pending = read(`curl -X GET
-       -F "status=pending"
-       https://gitlab.com/api/v4/projects/$PROJECT/pipelines`, String) == "[]"
-  running = read(`curl -X GET
-       -F "status=running"
-       https://gitlab.com/api/v4/projects/$PROJECT/pipelines`, String) == "[]"
+  d = Dict("status"=>"pending")
+  pending = HTTP.get("https://gitlab.com/api/v4/projects/$PROJECT/pipelines", query = d).body |> String
+  pending = pending == "[]"
+  
+  d = Dict("status"=>"running")
+  running = HTTP.get("https://gitlab.com/api/v4/projects/$PROJECT/pipelines", query = d).body |> String
+  running = running == "[]"
 
   running == pending == false
 end
