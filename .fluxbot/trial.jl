@@ -80,7 +80,7 @@ Returns the output of the curl call as a `Dict`.
 NOTE: Checks for an existing running pipeline, so
 the artifacts generated are consistent.
 """
-function trigger_pipeline(id, model; ref = "master", token = ENV["GITLAB_MODELZOO_TOKEN"])
+function trigger_pipeline(id, model, event; ref = "master", token = ENV["GITLAB_MODELZOO_TOKEN"])
   # replace project with 15454378
 
   # Check existing running pipelines triggered by bot
@@ -92,6 +92,7 @@ function trigger_pipeline(id, model; ref = "master", token = ENV["GITLAB_MODELZO
        -F "variables[PRID]=$id"
        -F "variables[TESTSUITE]=$model"
        -F "variables[MODELZOO_JOB_ID]=98138293"
+       -F "variables[REPO_NAME]=$(GitHub.name(event.repository))"
        https://gitlab.com/api/v4/projects/$PROJECT/trigger/pipeline`, String) |> JSON.parse
   end
 end
@@ -136,8 +137,10 @@ function trial()
                             params = get_response(com))
     else
       @assert com == "build"
-      # resp = trigger_pipeline(reply_to, model)
+      # resp = trigger_pipeline(reply_to, model, event)
       resp = Dict("id" => "98138293", "web_url" => "https://gitlab.com/JuliaGPU/Flux.jl/pipelines/98138293")
+
+      # Handle if pipeline not triggered
       if resp == nothing
         f_resp = copy(failed_resp)
         f_resp["body"] = f_resp["body"] * "There is an existing pipeline running. Abort that before triggering a new one."
