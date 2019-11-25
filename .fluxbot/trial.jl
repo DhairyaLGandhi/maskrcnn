@@ -139,7 +139,7 @@ function trial()
       resp = Dict("id" => "98138293", "web_url" => "https://gitlab.com/JuliaGPU/Flux.jl/pipelines/98138293")
       if resp == nothing
         f_resp = copy(failed_resp)
-        f_resp["body"] = f_resp["body"] * "Failed to trigger pipeline on GitLab"
+        f_resp["body"] = f_resp["body"] * "There is an existing pipeline running. Abort that before triggering a new one."
         GitHub.create_comment(event.repository, reply_to, comment_kind,
                               auth = myauth,
                               params = f_resp)
