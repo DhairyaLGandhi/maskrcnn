@@ -137,6 +137,14 @@ function trial()
       @assert com == "build"
       # resp = trigger_pipeline(reply_to, model)
       resp = Dict("id" => "98138293", "web_url" => "https://gitlab.com/JuliaGPU/Flux.jl/pipelines/98138293")
+      if resp == nothing
+        f_resp = copy(failed_resp)
+        f_resp["body"] = f_resp["body"] * "Failed to trigger pipeline on GitLab"
+        GitHub.create_comment(event.repository, reply_to, comment_kind,
+                              auth = myauth,
+                              params = f_resp)
+        return HTTP.Response(200)
+      end
 
       GitHub.create_comment(event.repository, reply_to, comment_kind,
                             auth = myauth,
