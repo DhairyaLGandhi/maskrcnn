@@ -22,4 +22,5 @@ jobs:
       - name: FluxBot.respond
         env:
           FLUXBOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BOT_SECRET: ${{ secrets.BOT_SECRET }}
         run: julia --project=.fluxbot .fluxbot/trial.jl
