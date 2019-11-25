@@ -5,6 +5,7 @@ using Sockets
 
 const myauth = GitHub.authenticate(ENV["FLUXBOT_GITHUB_TOKEN"])
 const trigger = r"FluxBot: .*"
+const PROJECT = "15168210" # Flux.jl
 
 const dic = Dict{String, Dict}("build" => Dict("body" => "Here are your results: "),
                                 "feed" => Dict("body" => "It says not to!!"),)
@@ -47,6 +48,51 @@ function get_response(command, output = "")
     val["body"] = val["body"] * string(output)
   end
   val
+end
+
+"""
+    no_existing_pipelines()
+
+Checks that the current project does not have any pending or running pipelines.
+
+Needed to ensure we get the correct artifacts out, since GitLab only serves the
+most recent artifacts through its API.
+"""
+function no_existing_pipelines()
+  pending = read(`curl -X GET
+       -F "status=pending"
+       https://gitlab.com/api/v4/projects/$PROJECT/pipelines`, String) == "[]"
+  running = read(`curl -X GET
+       -F "status=running"
+       https://gitlab.com/api/v4/projects/$PROJECT/pipelines`, String) == "[]"
+
+  running == pending == false
+end
+
+"""
+    trigger_pipeline(id, model; ref = "master", token)
+Triggers the model-zoo build with the given
+PR against the specified models.
+
+Returns the output of the curl call as a `Dict`.
+
+NOTE: Checks for an existing running pipeline, so
+the artifacts generated are consistent.
+"""
+function trigger_pipeline(id, model; ref = "master", token = ENV["GITLAB_MODELZOO_TOKEN"])
+  # replace project with 15454378
+
+  # Check existing running pipelines triggered by bot
+  r = if no_existing_pipelines()
+    read(`curl -X POST
+       -F "token=$token"
+       -F "ref=$ref"
+       -F "variables[FLUXBOT]=true"
+       -F "variables[PRID]=$id"
+       -F "variables[TESTSUITE]=$model"
+       -F "variables[MODELZOO_PIPELINE_ID]=98138293"
+       https://gitlab.com/api/v4/projects/$PROJECT/trigger/pipeline`, String) |> JSON.parse
+  end
 end
 
 function trial()
