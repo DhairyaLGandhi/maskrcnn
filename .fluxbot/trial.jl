@@ -91,7 +91,7 @@ function trigger_pipeline(id, model; ref = "master", token = ENV["GITLAB_MODELZO
        -F "variables[FLUXBOT]=true"
        -F "variables[PRID]=$id"
        -F "variables[TESTSUITE]=$model"
-       -F "variables[MODELZOO_PIPELINE_ID]=98138293"
+       -F "variables[MODELZOO_JOB_ID]=98138293"
        https://gitlab.com/api/v4/projects/$PROJECT/trigger/pipeline`, String) |> JSON.parse
   end
 end
@@ -105,6 +105,7 @@ function trial()
   if event.payload["action"] == "deleted"
     return HTTP.Response(200)
   end
+  @show GitHub.name(event.repository)
 
   # Ignore non-collaborators
   repo = event.repository
