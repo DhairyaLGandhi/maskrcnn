@@ -11,8 +11,7 @@ const dic = Dict{String, Dict}("build" => Dict("body" => "Here are your results:
 
 const std_resp = Dict("body" => "I couldn't get that. Maybe try asking for `commands`?")
 const failed_resp = Dict("body" => "Pipeline Failed: ")
-placeholder_resp(issue, pl) = Dict("body" => "Alright, I'll respond here when I have results for pipeline for $issue.\n
-                                              The pipeline $(pl["id"]) can be found at $(pl["web_url"])")
+placeholder_resp(issue, pl) = Dict("body" => "Alright, I'll respond here when I have results for pipeline for #$issue. The pipeline $(pl["id"]) can be found at $(pl["web_url"])")
 
 """
 checkout for key `pull_request` in event.payload["issue"]
