@@ -84,7 +84,7 @@ function trial()
       # resp = trigger_pipeline(reply_to, model)
       resp = Dict("id" => "98138293", "web_url" => "https://gitlab.com/JuliaGPU/Flux.jl/pipelines/98138293")
 
-      Github.create_comment(event.repository, reply_to, comment_kind
+      Github.create_comment(event.repository, reply_to, comment_kind,
                             auth = myauth,
                             params = placeholder_resp(reply_to, resp))
     end
