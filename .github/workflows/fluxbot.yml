@@ -1,7 +1,8 @@
 name: FluxBot
 
 on:
-  - commit_comment
+  issue_comment:
+    types: [created, edited]
 
 jobs:
   build:
