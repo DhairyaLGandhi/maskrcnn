@@ -210,5 +210,4 @@ function cuda_nms(dets, thresh)
 
     keep_flat = keep
     num_to_keep = 0
-
 end
