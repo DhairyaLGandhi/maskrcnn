@@ -28,8 +28,8 @@ deps = ["Random", "Serialization", "Sockets"]
 uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[FluxBot]]
-deps = ["GitHub", "Glob", "Sockets"]
-git-tree-sha1 = "afd829fe87c493a099aa5c41d71c468b56af34ff"
+deps = ["GitHub", "Glob", "Pkg", "Sockets"]
+git-tree-sha1 = "844ac741f9d506a4c82a18a56817e384acc6ebfe"
 repo-rev = "master"
 repo-url = "https://github.com/dhairyagandhi96/FluxBot.jl"
 uuid = "352bd040-0f98-11ea-1faf-6f930ca83554"
