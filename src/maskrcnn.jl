@@ -322,7 +322,6 @@ function BottleNeck(inplanes::Int, planes::Int; stride = (1,1), downsample=nothi
 end
 
 function (c::BottleNeck)(x)
-  # @show "input size: $(size(x))"
   residual = x
   out = c.chain(x)
   if !isa(c.downsample, Nothing)
