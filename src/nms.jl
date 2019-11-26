@@ -252,4 +252,5 @@ function cuda_nms(dets, thresh)
     #         end
     #     end
     # end
+
 end
