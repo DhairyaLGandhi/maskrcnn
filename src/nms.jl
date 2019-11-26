@@ -7,7 +7,6 @@ function nms(boxes_with_scores, threshold)
   x2 = boxes[:,4]
   areas = (x2 .- x1 .+ 1) .* (y2 .- y1 .+ 1) # + 1
   idxs = sortperm(scores, rev = true)
-  # @show idxs[1:10]
 
   # sort boxes based on scores
   # @show scores[1:10], scores[end-10:end]
