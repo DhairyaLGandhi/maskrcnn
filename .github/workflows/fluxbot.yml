@@ -24,4 +24,4 @@ jobs:
           FLUXBOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_SECRET: ${{ secrets.BOT_SECRET }}
           MODELZOO_TOKEN: ${{ secrets.MODELZOO_TOKEN }}
-        run: julia --project=.fluxbot -e 'using FluxBot; FluxBot.respond()'
+        run: julia --project=.fluxbot -e 'using FluxBot; FluxBot.trial()'
