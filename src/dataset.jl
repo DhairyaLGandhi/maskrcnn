@@ -166,8 +166,6 @@ function minimise_mask(bbox, mask, mini_shape)
     m = mask[:, :, i]
     y1, x1, y2, x2 = box
     m = m[x1:x2, y1:y2]
-    # @show size(m)
-    # @show "here"
     m = imresize(m, mini_shape)
     # @show size(m)
     m = clamp.(m, 0., 1.)
