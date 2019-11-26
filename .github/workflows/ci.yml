@@ -1,4 +1,4 @@
-name: FluxBot
+name: CI
 
 on:
   - push
@@ -19,7 +19,7 @@ jobs:
           version: ${{ matrix.julia-version }}
       - name: Install dependencies
         run: julia --project=.fluxbot/ -e 'using Pkg; Pkg.instantiate()'
-      - name: FluxBot.respond
+      - name: CI.trigger
         env:
           FLUXBOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           BOT_SECRET: ${{ secrets.BOT_SECRET }}
