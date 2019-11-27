@@ -29,7 +29,7 @@ uuid = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 
 [[FluxBot]]
 deps = ["GitHub", "Glob", "Pkg", "Sockets"]
-git-tree-sha1 = "ead3c05be858b32f077a67d877a8e1be06448e19"
+git-tree-sha1 = "cbd7bc8623d19c2c001b1e4123da84d6ef43f08c"
 repo-rev = "master"
 repo-url = "https://github.com/dhairyagandhi96/FluxBot.jl"
 uuid = "352bd040-0f98-11ea-1faf-6f930ca83554"
