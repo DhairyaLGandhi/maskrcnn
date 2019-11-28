@@ -1,5 +1,7 @@
 ## MaskRCNN.jl
 
+Working oimplementation of RCNN in Flux.jl
+
 DONE: 
  - loss functions
  - data generator
