@@ -1,6 +1,6 @@
 ## MaskRCNN.jl
 
-Working oimplementation of RCNN in Flux.jl
+Working implementation of RCNN in Flux.jl
 
 DONE: 
  - loss functions
