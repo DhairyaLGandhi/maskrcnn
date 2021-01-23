@@ -2,7 +2,6 @@ using JSON, StatsBase
 using Images, Luxor
 using Images.ImageTransformations
 using Interpolations
-# using ImageView
 
 const base = "/home/shared/coco_images"
 const images_path = joinpath(base, "train2014")
@@ -62,15 +61,12 @@ function sample_coco(cid, images, classes;
   img_class = 4 # sample(classes) # 4
   img_id = 275544 # sample(cid[img_class]) # 275544
   img = images[img_id]
-  # segmentation = img["segmentation"]
-  # rpn_bbox = transpose(img["bbox"])
   img_data = try
       Images.load(joinpath(images_path, img["file_name"]))
     catch KeyError
       Images.load(images_path * "/$base_name" * string(img_id) * ".jpg")
     end
   img_data = permutedims(channelview(img_data), (3,2,1))
-  # mask = zeros(Float32, size(img_data)[1:2]...)
   mask, bboxes, class_ids, masks = make_masks(img, size(img_data)[1:2], img["file_name"], masks = masks)
   
   # Don't resize
@@ -91,13 +87,8 @@ function sample_coco(id::Int, images; base_name = "COCO_train2014_000000", masks
     end
   end
   img_data = permutedims(channelview(img_data), (3,2,1))
-  # img_class = img["category_id"]
-  # segmentation = img["segmentation"]
-  # mask = zeros(Float32, size(img_data)[1:2]...)
-  # mask, masks = make_masks(segmentation, size(img_data)[1:2], img["file_name"], masks = masks)
   mask, bboxes, class_ids, masks = make_masks(img, size(img_data)[1:2], img["file_name"], masks = masks)
 
-  # rpn_bbox = transpose(img["bbox"])
   img_data, mask, class_ids, bboxes, id, masks
 end
 
@@ -175,8 +166,6 @@ function minimise_mask(bbox, mask, mini_shape)
     m = mask[:, :, i]
     y1, x1, y2, x2 = box
     m = m[x1:x2, y1:y2]
-    # @show size(m)
-    # @show "here"
     m = imresize(m, mini_shape)
     # @show size(m)
     m = clamp.(m, 0., 1.)

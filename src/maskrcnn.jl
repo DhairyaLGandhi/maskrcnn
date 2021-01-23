@@ -15,7 +15,6 @@ end
 @treelike ConvBlock
 
 function ConvBlock(kernel, chs; stride = (1, 1), pad = (0, 0))
-  # @show stride
   stride = stride
   ConvBlock(Conv(kernel, chs, stride = stride, pad = pad) |> gpu,
 
@@ -173,7 +172,6 @@ function (c::FPN)(x)
   c4_out = c.C4(c3_out)
   c5_out = c.C5(c4_out)
 
-  @show size(c5_out)
   p5_out = c.P5_conv1(c5_out)
 
   p4_out = c.P4_conv1(c4_out) + gpu(upsample(cpu(p5_out), (2,2,1,1)))
@@ -213,10 +211,7 @@ end
 
 function (c::Mask)(x, rois)
   op = pyramid_roi_align((rois, x...), c.pool_size, c.image_shape)
-  @show size(op)
-  # @show typeof(op)
   op = gpu(op)
-  # @show typeof(op)
   op = c.chain(op)
   op
 end
@@ -249,22 +244,13 @@ function Classifier(depth, pool_size, image_shape, num_classes)
 end
 
 function (c::Classifier)(x, rois)
-  # @show typeof(x)
   x = pyramid_roi_align((rois, x...), c.pool_size, c.image_shape)
-  @show "passed pyramide"
-  @show size(x)
-  # @show typeof(collect(x))
   x = gpu(x)
-  @show typeof(x)
   x = c.chain(x)
-  @show size(x)
   x = dropdims(x, dims = (1,2))
-  # x = transpose(x)
-  # @show size(x)
   mrcnn_class_logits = c.linear_class(x)
   mrcnn_probs = softmax(mrcnn_class_logits)
   mrcnn_bbox = c.linear_bbox(x)
-  @warn size(mrcnn_bbox)
   mrcnn_bbox = reshape(mrcnn_bbox, (:, 4, size(mrcnn_bbox, ndims(mrcnn_bbox))))
 
   mrcnn_class_logits, mrcnn_probs, mrcnn_bbox
@@ -298,27 +284,19 @@ function (c::RPN)(x)
   x = c.conv_shared(x)
 
   rpn_class_logits = c.conv_class(x)
-  @show size(rpn_class_logits)
   rpn_class_logits = permutedims(rpn_class_logits, (3,4,2,1)) |> 
                     x -> reshape(x, (2,:, size(rpn_class_logits, ndims(rpn_class_logits))))
-  @show maximum(rpn_class_logits)
-  @warn "rpn_class_logits"
 
   ss = []
   for i in 1:size(rpn_class_logits, ndims(rpn_class_logits))
     y = selectdim(rpn_class_logits, ndims(rpn_class_logits), i)
     push!(ss, softmax(y))
   end
-  @show "no loop"
   rpn_probs = cat(ss..., dims = 3)
-  @show maximum(rpn_probs)
-  @warn "rpn_probs"
 
   rpn_bbox = c.conv_bbox(x)
   rpn_bbox = permutedims(rpn_bbox, (3,4,2,1)) |> 
                     x -> reshape(x, (4,:, size(rpn_bbox, ndims(rpn_bbox))))
-  @show maximum(rpn_bbox)
-  @warn "rpn_bbox"
 
   rpn_class_logits, rpn_probs, rpn_bbox
 end
@@ -331,7 +309,6 @@ end
 @treelike BottleNeck
 
 function BottleNeck(inplanes::Int, planes::Int; stride = (1,1), downsample=nothing)
-  # @show stride
   chain = Chain(ConvBlock((1,1), inplanes=>planes,
                                 stride = stride, 
                                 pad = (0,0)),
@@ -345,19 +322,12 @@ function BottleNeck(inplanes::Int, planes::Int; stride = (1,1), downsample=nothi
 end
 
 function (c::BottleNeck)(x)
-  # @show "input size: $(size(x))"
   residual = x
   out = c.chain(x)
   if !isa(c.downsample, Nothing)
     residual = c.downsample(x)
   end
-  # @show "before shortcut"
-  # @show size(out)
-  # @show size(residual)
-  # @show c.downsample
   out = out .+ residual
-  # @show "after shortcut"
-  # @show "output size: $(size(out))"
   relu.(out)
 end
 
@@ -379,7 +349,6 @@ function make_layer(block, planes, blocks, inplanes; stride = (1,1))
   end
 
   layers = []
-  # return block(inplanes, planes; stride = stride, downsample = downsample)
   push!(layers, block(inplanes, planes; stride = stride, downsample = downsample))
   inplanes = planes * 4
   for i = 1:(blocks-1)
@@ -479,143 +448,6 @@ function detect(c::MaskRCNN, images)
   detections, mrcnn_mask = predict(molded_images, image_metas)
 end
 
-# function predict(c::MaskRCNN, molded_images, image_metas,
-#                 gt_class_ids = nothing, gt_boxes = nothing,
-#                 gt_masks = nothing, mode = "inference")
-
-#   p2_out, p3_out, p4_out, p5_out, p6_out = c.fpn(molded_images)
-#   rpn_feature_maps = [p2_out, p3_out, p4_out, p5_out, p6_out]
-#   mrcnn_feature_maps = [p2_out, p3_out, p4_out, p5_out]
-#   @show "got fpn"
-
-#   # for r in rpn_feature_maps
-#   #   @show mean(r)
-#   # end
-
-#   # layer_outputs = []
-#   # for p in rpn_feature_maps
-#   #     push!(layer_outputs, c.rpn(p))
-#   # end
-
-#   c.rpn = cpu(c.rpn)
-#   rpn_feature_maps = cpu.(rpn_feature_maps)
-#   layer_outputs = map(c.rpn, rpn_feature_maps)
-#   @show "rpn out"
-#   # for lo in layer_outputs
-#   #   for m in lo
-#   #     @show size(m)
-#   #     @show maximum(m)
-#   #   end
-#   # end
-
-#   ops = zip(layer_outputs...)
-#   ops2 = []
-#   # for o in ops
-#   #   push!(ops2, reduce(hcat, o))
-#   # end
-#   ops2 = map(x -> reduce(hcat, x), ops)
-#   @show "reduction done"
-#   # ops2 = gpu.(ops2)
-#   rpn_class_logits, rpn_class, rpn_bbox = ops2
-#   # @show maximum(rpn_class_logits)
-#   # @show mean(rpn_class_logits)
-#   # @show maximum(rpn_bbox)
-#   # @show mean(rpn_bbox)
-#   # @show maximum(rpn_class)
-#   # @show mean(rpn_class)
-
-#   POST_NMS_ROIS_TRAINING = 2000
-#   POST_NMS_ROIS_INFERENCE = 1000
-#   RPN_NMS_THRESHOLD = 0.7f0
-
-#   if mode == "training"
-#     proposal_count = POST_NMS_ROIS_TRAINING
-#   else
-#     proposal_count = POST_NMS_ROIS_INFERENCE
-#   end
-
-#   rpn_rois_arr = []
-#   # global grpn_class = rpn_class
-#   # global grpn_bbox = rpn_bbox
-#   for i in 1:size(rpn_class, ndims(rpn_class))
-#     rpn_class_slice = @view rpn_class[:, :, i]   
-#     rpn_bbox_slice = @view rpn_bbox[:, :, i]    
-#     # @show size(rpn_class_slice'), size(rpn_bbox_slice')
-#     # @show maximum(rpn_bbox_slice)
-#     # @show maximum(rpn_class_slice)
-#     @info "At proposal # $i"
-#     rpn_rois = proposal_layer([rpn_class_slice', rpn_bbox_slice'],
-#                 proposal_count,
-#                 RPN_NMS_THRESHOLD,
-#                 cpu(c.anchors))
-#     @show size(rpn_rois)
-#     push!(rpn_rois_arr, rpn_rois)
-#   end
-#   @show size(rpn_rois_arr[1])
-#   # @show size(rpn_class)[end]
-#   # rpn_rois = cat(rpn_rois_arr..., dims = 3)
-
-#   # Make rpn_rois separate for every image. Currently, all images share
-#   # all the ROIs.
-#   rpn_rois = reduce(vcat, rpn_rois_arr)  # remove
-#   @show typeof(rpn_rois)
-#   rpn_rois = gpu(rpn_rois)
-#   # @show rpn_rois
-#   # error()
-#   # return mrcnn_feature_maps, rpn_rois_arr
-#   if mode == "inference"
-#     for s in mrcnn_feature_maps
-#       @show size(s)
-#     end
-#     # global grois = rpn_rois
-#     mrcnn_class_logits, mrcnn_class, mrcnn_bbox = c.classifier(mrcnn_feature_maps, rpn_rois)
-
-#     @show size(mrcnn_class_logits)
-#     @show size(rpn_rois)
-
-#     detections = detection_layer(rpn_rois, mrcnn_class, mrcnn_bbox, image_metas)
-#     @show size(detections)
-
-#     IMAGE_SHAPE = (1024, 1024, 3)
-#     h, w = IMAGE_SHAPE[1:2]
-#     scale = [h w h w]
-#     detection_boxes = detections[:, 1:4] ./ scale
-
-#     mrcnn_mask = c.mask(mrcnn_feature_maps, detection_boxes)
-#     @show size(mrcnn_mask)
-
-#     return [detections, mrcnn_mask]
-#   elseif mode == "training"
-#     # gt_class_ids = input[3]
-#     # gt_boxes = input[4]
-#     # gt_masks = input[5]
-
-#     IMAGE_SHAPE = (1024, 1024, 3)
-#     h, w = IMAGE_SHAPE[1:2]
-#     scale = [h w h w] |> gpu
-
-#     gt_boxes = gt_boxes ./ scale
-
-#     rois, target_class_ids, target_deltas, target_mask =
-#                 detection_target_layer(rpn_rois, gt_class_ids,
-#                                       gt_boxes, gt_masks)
-
-#     mrcnn_class_logits, mrcnn_class, mrcnn_bbox = c.classifier(mrcnn_feature_maps, rois)
-
-#     mrcnn_mask = c.mask(mrcnn_feature_maps, rois)
-#     @warn "am i actually done?"
-
-#     return (rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits,
-#             target_deltas, mrcnn_bbox, target_mask, mrcnn_mask)
-#     # use o/p from here, add targets from datatset.jl
-#     # compute loss here and push backprop
-#   else
-#     error("Mode $mode not implemented")
-#   end
-#   # mrcnn_feature_maps, rpn_rois_arr
-
-# end
-
 function predict(c::MaskRCNN, molded_images, image_metas,
                 gt_class_ids = nothing, gt_boxes = nothing,
                 gt_masks = nothing, mode = "inference")
@@ -623,7 +455,6 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   p2_out, p3_out, p4_out, p5_out, p6_out = c.fpn(molded_images);
   rpn_feature_maps = [p2_out, p3_out, p4_out, p5_out, p6_out];
   mrcnn_feature_maps = [p2_out, p3_out, p4_out, p5_out];
-  @show "got fpn"
 
   layer_outputs = []
   for p in rpn_feature_maps
@@ -637,9 +468,6 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   end
 
   rpn_class_logits, rpn_class, rpn_bbox = ops2; # map(x -> reduce(hcat, x), ops)
-
-  global grpn_class = rpn_class
-  global grpn_bbox = rpn_bbox
 
   POST_NMS_ROIS_TRAINING = 2000
   POST_NMS_ROIS_INFERENCE = 1000
@@ -662,27 +490,17 @@ function predict(c::MaskRCNN, molded_images, image_metas,
                 proposal_count = proposal_count,
                 nms_threshold = RPN_NMS_THRESHOLD,
                 anchors = c.anchors)
-    @show size(rpn_rois)
     push!(rpn_rois_arr, rpn_rois)
   end
-  @show size(rpn_rois_arr[1])
 
   # Make rpn_rois separate for every image. Currently, all images share
   # all the ROIs.
   rpn_rois = reduce(vcat, rpn_rois_arr)  # remove
-  @show typeof(rpn_rois)
 
   if mode == "inference"
-    for s in mrcnn_feature_maps
-      @show size(s)
-    end
     mrcnn_class_logits, mrcnn_class, mrcnn_bbox = c.classifier(mrcnn_feature_maps, rpn_rois)
 
-    @show size(mrcnn_class_logits)
-    @show size(rpn_rois)
-
     detections = detection_layer(rpn_rois, mrcnn_class, mrcnn_bbox, image_metas)
-    @show size(detections)
 
     IMAGE_SHAPE = (1024, 1024, 3)
     h, w = IMAGE_SHAPE[1:2]
@@ -690,7 +508,6 @@ function predict(c::MaskRCNN, molded_images, image_metas,
     detection_boxes = detections[:, 1:4] ./ scale
 
     mrcnn_mask = c.mask(mrcnn_feature_maps, detection_boxes)
-    @show size(mrcnn_mask)
 
     return [detections, mrcnn_mask]
   elseif mode == "training"
@@ -708,7 +525,6 @@ function predict(c::MaskRCNN, molded_images, image_metas,
     mrcnn_class_logits, mrcnn_class, mrcnn_bbox = c.classifier(mrcnn_feature_maps, rois)
 
     mrcnn_mask = c.mask(mrcnn_feature_maps, rois)
-    @warn "am i actually done?"
 
     return (rpn_class_logits, rpn_bbox, target_class_ids, mrcnn_class_logits,
             target_deltas, mrcnn_bbox, target_mask, mrcnn_mask)
@@ -717,8 +533,6 @@ function predict(c::MaskRCNN, molded_images, image_metas,
   else
     error("Mode $mode not implemented")
   end
-  # mrcnn_feature_maps, rpn_rois_arr
-
 end
 
 function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_batch = 2)
@@ -763,19 +577,7 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
 
     target_class_ids = Int.(target_class_ids);
 
-    # Oh God Why
-    # l1, l2, l3 = compute_losses(rpn_class_logits, rpn_bbox, target_class_ids,
-    #                             mrcnn_class_logits, target_deltas, mrcnn_bbox,
-    #                             target_mask, mrcnn_mask)
-    # rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
-    # rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
-    # mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
-    # mrcnn_bbox_loss = compute_mrcnn_bbox_loss(target_deltas, target_class_ids, mrcnn_bbox)
-    # mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
-
-    # loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
-
-    # gs = Tracker.gradient(ps) do
+    gs = Tracker.gradient(ps) do
       rpn_class_loss = compute_rpn_class_loss(rpn_match, rpn_class_logits)
       rpn_bbox_loss = compute_rpn_bbox_loss(rpn_bbox, rpn_match, rpn_pred_bbox)
       mrcnn_class_loss = compute_mrcnn_class_loss(target_class_ids, mrcnn_class_logits)
@@ -783,8 +585,7 @@ function train_maskrcnn(c::MaskRCNN, dataset = "coco"; epochs = 100, images_per_
       mrcnn_mask_loss = compute_mrcnn_mask_loss(target_mask, target_class_ids, mrcnn_mask)
 
       loss = rpn_class_loss + rpn_bbox_loss + mrcnn_class_loss + mrcnn_bbox_loss + mrcnn_mask_loss
-    # end
-    back!(loss)
+    end
 
     update!(opt, ps, gs)
   end
