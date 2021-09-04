@@ -1,4 +1,5 @@
 # This file is machine-generated - editing it directly is not advised
+
 [[ArgTools]]
 uuid = "0dad84c5-d112-42e6-8d28-ef12dabb789f"
 
@@ -19,8 +20,8 @@ uuid = "f43a241f-c20a-4ad4-852c-f6b1247861c6"
 [[FluxBot]]
 deps = ["GitHub", "Glob", "Pkg", "Sockets"]
 git-tree-sha1 = "d0af8ba5083a9e29f88f5be0c7b024e8d35d249f"
-repo-rev = "dg/bk"
-repo-url = "https://github.com/DhairyaLGandhi/FluxBot.jl"
+repo-rev = "ns/bk"
+repo-url = "https://github.com/nirmal-suthar/FluxBot.jl"
 uuid = "352bd040-0f98-11ea-1faf-6f930ca83554"
 version = "0.1.0"
 
@@ -192,39 +193,3 @@ uuid = "8e850ede-7688-5339-a07c-302acd2aaf8d"
 [[p7zip_jll]]
 deps = ["Artifacts", "Libdl"]
 uuid = "3f19e933-33d8-53b3-aaab-bd5110c3b7a0"
-s = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
- = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
-s = ["Libdl", "Pkg"]
-git-tree-sha1 = "7127f5f40332ccfa43ee07dcd0c4d81a27d9bb23"
-uuid = "a9144af2-ca23-56d9-984f-0d03f7b5ccf8"
-version = "1.0.18+1"
